@@ -1,0 +1,44 @@
+[
+  {
+    "id": "valorant",
+    "name": "Valorant",
+    "yaw": 0.07,
+    "default_fov": 103.0
+  },
+  {
+    "id": "cs2",
+    "name": "Counter-Strike 2 / CS:GO",
+    "yaw": 0.022,
+    "default_fov": 106.26
+  },
+  {
+    "id": "overwatch2",
+    "name": "Overwatch 2",
+    "yaw": 0.0066,
+    "default_fov": 103.0
+  },
+  {
+    "id": "apex",
+    "name": "Apex Legends / Source Engine",
+    "yaw": 0.022,
+    "default_fov": 110.0
+  },
+  {
+    "id": "fortnite",
+    "name": "Fortnite",
+    "yaw": 0.5555,
+    "default_fov": 80.0
+  },
+  {
+    "id": "rainbow6",
+    "name": "Rainbow Six Siege",
+    "yaw": 0.00572957795,
+    "default_fov": 90.0
+  },
+  {
+    "id": "cod_warzone",
+    "name": "Call of Duty / Warzone",
+    "yaw": 0.0066,
+    "default_fov": 120.0
+  }
+]

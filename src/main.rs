@@ -1,11 +1,13 @@
 mod engine;
 mod game;
+mod sensitivity;
 
 use engine::{camera::Camera, input::InputManager, renderer::Renderer, timing::Timing};
 use game::{
     hit_detection::Ray,
     tasks::{TaskManager, TaskState, TaskType},
 };
+use sensitivity::{SensitivityConverter, SensitivityEngine};
 use std::sync::Arc;
 use winit::{
     application::ApplicationHandler,
@@ -21,7 +23,10 @@ struct GameState {
     input: InputManager,
     timing: Timing,
     task_manager: TaskManager,
+    sensitivity_engine: SensitivityEngine,
+    current_cm_360: f64,
     rad_per_count: f32,
+    player_dpi: f64,
 }
 
 impl GameState {
@@ -38,8 +43,10 @@ impl GameState {
 
         let timing = Timing::new(1000.0); // 1000 Hz physics tick
 
-        // Standard sensitivity: 800 DPI, 0.35 Valorant (approx 0.00038 rad per mouse count)
-        let rad_per_count = 0.07_f32.to_radians() * 0.35;
+        let player_dpi = 800.0;
+        let sensitivity_engine = SensitivityEngine::new(player_dpi);
+        let current_cm_360 = sensitivity_engine.psa.current_test_cm_360;
+        let rad_per_count = SensitivityConverter::cm_360_to_rad_per_count(player_dpi, current_cm_360);
 
         let mut task_manager = TaskManager::new();
         task_manager.set_task(TaskType::Flick);
@@ -51,16 +58,20 @@ impl GameState {
             input,
             timing,
             task_manager,
+            sensitivity_engine,
+            current_cm_360,
             rad_per_count,
+            player_dpi,
         }
     }
 
     fn update(&mut self) {
         let dt = self.timing.update();
 
-        // 1. Process Raw Input deltas
+        // 1. Process Raw Input deltas & record path
         let (dx, dy) = self.input.consume_mouse_delta();
         if dx != 0.0 || dy != 0.0 {
+            self.sensitivity_engine.path_recorder.record_sample(dx, dy);
             self.camera.rotate(dx, dy, self.rad_per_count);
         }
 
@@ -72,9 +83,39 @@ impl GameState {
         // 2. Handle Shooting / Hit Detection on Left Click
         if self.input.consume_left_click() && self.input.is_locked() {
             let hit = self.task_manager.on_click(crosshair_ray);
-            if hit {
-                log::info!("Task Target Hit!");
+
+            // Finish shot trajectory analysis
+            if let Some(path) = self.sensitivity_engine.path_recorder.end_shot() {
+                log::info!("Shot trajectory classified as: {:?}", path.pattern);
+
+                // Feed into PSA Calibrator
+                let round_done = self.sensitivity_engine.psa.record_shot(path.pattern);
+                if round_done {
+                    log::info!(
+                        "PSA Round #{} complete! Next test cm/360: {:.1} cm",
+                        self.sensitivity_engine.psa.round_number,
+                        self.sensitivity_engine.psa.current_test_cm_360
+                    );
+                    self.current_cm_360 = self.sensitivity_engine.psa.current_test_cm_360;
+                    self.rad_per_count = SensitivityConverter::cm_360_to_rad_per_count(
+                        self.player_dpi,
+                        self.current_cm_360,
+                    );
+                }
+
+                // Feed into Statistical Analyzer
+                let acc = if hit { 100.0 } else { 0.0 };
+                let rt_ms = path.end_time.duration_since(path.start_time).as_millis() as f64;
+                self.sensitivity_engine.analyzer.record_sample(
+                    self.current_cm_360,
+                    acc,
+                    rt_ms,
+                    &path,
+                );
             }
+
+            // Immediately prime recorder for the next shot
+            self.sensitivity_engine.path_recorder.start_shot();
         }
 
         // 3. Update Task Manager state & targets
@@ -105,7 +146,7 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.is_none() {
             let window_attributes = Window::default_attributes()
-                .with_title("Aim Trainer - 5 Task Scenarios Ready")
+                .with_title("Aim Trainer - Sensitivity Engine Running")
                 .with_inner_size(winit::dpi::LogicalSize::new(1280, 720));
 
             let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
@@ -159,37 +200,43 @@ impl ApplicationHandler for App {
                 KeyCode::Escape => {
                     state.toggle_cursor_lock();
                 }
-                // Quick keybind shortcuts to test all 5 tasks (1..=5) & restart (R)
                 KeyCode::Digit1 => {
-                    log::info!("Switching to Flick Task");
                     state.task_manager.set_task(TaskType::Flick);
                     state.task_manager.start_task_with_countdown();
                 }
                 KeyCode::Digit2 => {
-                    log::info!("Switching to Tracking Task");
                     state.task_manager.set_task(TaskType::Tracking);
                     state.task_manager.start_task_with_countdown();
                 }
                 KeyCode::Digit3 => {
-                    log::info!("Switching to Switching Task");
                     state.task_manager.set_task(TaskType::Switching);
                     state.task_manager.start_task_with_countdown();
                 }
                 KeyCode::Digit4 => {
-                    log::info!("Switching to MicroAdjust Task");
                     state.task_manager.set_task(TaskType::MicroAdjust);
                     state.task_manager.start_task_with_countdown();
                 }
                 KeyCode::Digit5 => {
-                    log::info!("Switching to Speed Task");
                     state.task_manager.set_task(TaskType::Speed);
                     state.task_manager.start_task_with_countdown();
                 }
                 KeyCode::KeyR => {
-                    log::info!("Restarting current task");
                     let cur = state.task_manager.current_type;
                     state.task_manager.set_task(cur);
                     state.task_manager.start_task_with_countdown();
+                }
+                // Key C: Compute final sensitivity recommendation and log to console
+                KeyCode::KeyC => {
+                    let rec = state.sensitivity_engine.compute_final_recommendation();
+                    println!("\n=======================================================");
+                    println!("🎯 SENSITIVITY CALIBRATION RESULTS 🎯");
+                    println!("Optimal cm/360° : {:.2} cm", rec.optimal_cm_360);
+                    println!("Confidence      : {:.0}%", rec.confidence_score * 100.0);
+                    println!("Game Conversions (at {:.0} DPI):", state.player_dpi);
+                    for (game, sens) in &rec.conversions {
+                        println!("  • {:<28} : {:.4}", game, sens);
+                    }
+                    println!("=======================================================\n");
                 }
                 _ => {}
             },
@@ -208,26 +255,24 @@ impl ApplicationHandler for App {
 
                 let fps = state.timing.fps();
                 let task_name = state.task_manager.current_task_name();
+                let cm = state.current_cm_360;
+                let round = state.sensitivity_engine.psa.round_number;
 
                 let title = match state.task_manager.state {
                     TaskState::Countdown { remaining_secs } => {
-                        format!("Aim Trainer | Task: {} | Starting in {:.1}s... [1-5 Switch Task, R Restart]", task_name, remaining_secs)
+                        format!("Aim Trainer | Task: {} | Starting in {:.1}s... [Current: {:.1} cm/360]", task_name, remaining_secs, cm)
                     }
                     TaskState::Running => {
-                        format!("Aim Trainer | FPS: {} | Task: {} | RUNNING [Keys 1-5 to switch, ESC to unlock]", fps, task_name)
+                        format!(
+                            "Aim Trainer | FPS: {} | Task: {} | PSA Round: #{} ({:.1} cm/360) | Press C for Rec",
+                            fps, task_name, round, cm
+                        )
                     }
                     TaskState::Finished => {
-                        if let Some(metrics) = &state.task_manager.last_completed_metrics {
-                            format!(
-                                "Aim Trainer | {} COMPLETED! Score: {} | Acc: {:.1}% | Avg RT: {:.0}ms | Press R to Retry",
-                                metrics.task_name, metrics.score, metrics.accuracy, metrics.avg_reaction_time_ms
-                            )
-                        } else {
-                            format!("Aim Trainer | {} FINISHED | Press R to Retry", task_name)
-                        }
+                        format!("Aim Trainer | Task Finished | Press C for Sensitivity Recommendation | Press R to Retry")
                     }
                     TaskState::NotStarted => {
-                        format!("Aim Trainer | Task: {} | Ready (Press 1-5 or R)", task_name)
+                        format!("Aim Trainer | Ready [Keys 1-5 to switch, C to view recommendation]")
                     }
                 };
 
