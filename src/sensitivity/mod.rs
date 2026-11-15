@@ -13,6 +13,17 @@ pub use psa::{PsaCalibrator, PsaRoundConclusion, PsaRoundResult};
 use crate::data::{CalibrationResult, CalibrationRound};
 use chrono::{DateTime, Utc};
 
+/// What a calibration shot did to the search.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum CalibrationShotOutcome {
+    /// Counted toward the current round.
+    Recorded,
+    /// Ended a round; `psa.current_test_cm_360` is the next sensitivity to test.
+    RoundChanged(PsaRoundConclusion),
+    /// Ended the last round; the calibration is finished.
+    Completed,
+}
+
 #[derive(Clone, Debug)]
 pub struct FinalSensitivityRecommendation {
     pub optimal_cm_360: f64,
@@ -38,6 +49,30 @@ impl SensitivityEngine {
             analyzer: StatisticalAnalyzer::new(),
             path_recorder: MousePathRecorder::new(),
             player_dpi: if player_dpi > 0.0 { player_dpi } else { 800.0 },
+        }
+    }
+
+    /// Feed one calibration shot taken at `cm_360`. The analyzer sample is recorded before PSA
+    /// may move the sensitivity, so every shot belongs to the sensitivity it was taken at.
+    pub fn record_calibration_shot(
+        &mut self,
+        cm_360: f64,
+        hit: bool,
+        reaction_time_ms: f64,
+        path: &ShotMovementPath,
+    ) -> CalibrationShotOutcome {
+        let accuracy = if hit { 100.0 } else { 0.0 };
+        self.analyzer
+            .record_sample(cm_360, accuracy, reaction_time_ms, path);
+        if !self.psa.record_shot(path.pattern) {
+            return CalibrationShotOutcome::Recorded;
+        }
+        if self.psa.is_completed {
+            return CalibrationShotOutcome::Completed;
+        }
+        match self.psa.history.last() {
+            Some(r) => CalibrationShotOutcome::RoundChanged(r.conclusion),
+            None => CalibrationShotOutcome::Recorded,
         }
     }
 

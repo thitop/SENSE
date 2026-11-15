@@ -650,6 +650,48 @@ fn new_profile_ids_never_collide() {
     assert!(unique_profile_id("!!!", &existing).starts_with("profile_"));
 }
 
+fn shot(pattern: ShotTrajectoryPattern) -> aim_trainer::sensitivity::ShotMovementPath {
+    let now = std::time::Instant::now();
+    aim_trainer::sensitivity::ShotMovementPath {
+        samples: Vec::new(),
+        start_time: now,
+        end_time: now,
+        total_mouse_distance: 300.0,
+        peak_velocity: 1500.0,
+        direction_changes: 0,
+        pattern,
+    }
+}
+
+#[test]
+fn calibration_shot_is_attributed_before_the_round_moves_sensitivity() {
+    use aim_trainer::sensitivity::CalibrationShotOutcome;
+    let mut engine = SensitivityEngine::new(800.0);
+    let cm = engine.psa.current_test_cm_360;
+    for _ in 0..9 {
+        let out = engine.record_calibration_shot(cm, true, 400.0, &shot(ShotTrajectoryPattern::Overshoot));
+        assert_eq!(out, CalibrationShotOutcome::Recorded);
+    }
+    let out = engine.record_calibration_shot(cm, true, 400.0, &shot(ShotTrajectoryPattern::Overshoot));
+    assert_eq!(out, CalibrationShotOutcome::RoundChanged(PsaRoundConclusion::TooFastNeedSlower));
+    assert_eq!(engine.analyzer.samples.len(), 10);
+    assert!(engine.analyzer.samples.iter().all(|s| s.cm_360 == cm));
+    assert_ne!(engine.psa.current_test_cm_360, cm);
+}
+
+#[test]
+fn calibration_shot_reports_completion() {
+    use aim_trainer::sensitivity::CalibrationShotOutcome;
+    let mut engine = SensitivityEngine::new(800.0);
+    engine.psa = PsaCalibrator::new(15.0, 80.0, 1);
+    let mut last = CalibrationShotOutcome::Recorded;
+    for _ in 0..10 {
+        last = engine.record_calibration_shot(47.5, false, 600.0, &shot(ShotTrajectoryPattern::Direct));
+    }
+    assert_eq!(last, CalibrationShotOutcome::Completed);
+    assert!(engine.psa.is_completed);
+}
+
 #[test]
 fn current_metrics_reports_running_task() {
     let mut tm = TaskManager::new();

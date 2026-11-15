@@ -16,7 +16,7 @@ use game::{
     hit_detection::Ray,
     tasks::{TaskManager, TaskState, TaskType},
 };
-use sensitivity::{SensitivityConverter, SensitivityEngine};
+use sensitivity::{CalibrationShotOutcome, SensitivityConverter, SensitivityEngine};
 use std::sync::Arc;
 use ui::{render_ui, theme, OnboardingDraft, Screen, UiAction, UiModel, UiState};
 use winit::{
@@ -437,21 +437,22 @@ impl GameState {
             });
 
             if records_calibration_shot(self.session, self.task_manager.state) {
-                // Attribute the shot to the sensitivity it was taken at, before PSA may move it.
-                let acc = if hit { 100.0 } else { 0.0 };
-                self.sensitivity_engine
-                    .analyzer
-                    .record_sample(self.current_cm_360, acc, rt_ms as f64, &path);
-
-                if self.sensitivity_engine.psa.record_shot(path.pattern) {
-                    if self.sensitivity_engine.psa.is_completed {
+                let outcome = self.sensitivity_engine.record_calibration_shot(
+                    self.current_cm_360,
+                    hit,
+                    rt_ms as f64,
+                    &path,
+                );
+                match outcome {
+                    CalibrationShotOutcome::Recorded => {}
+                    CalibrationShotOutcome::RoundChanged(conclusion) => {
+                        self.set_cm_360(self.sensitivity_engine.psa.current_test_cm_360);
+                        let now = self.now();
+                        self.ui_state.show_toast(round_change_message(conclusion), now);
+                    }
+                    CalibrationShotOutcome::Completed => {
                         self.finish_calibration();
                         return;
-                    }
-                    self.set_cm_360(self.sensitivity_engine.psa.current_test_cm_360);
-                    if let Some(last) = self.sensitivity_engine.psa.history.last() {
-                        let now = self.now();
-                        self.ui_state.show_toast(round_change_message(last.conclusion), now);
                     }
                 }
             }
