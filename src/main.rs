@@ -11,7 +11,7 @@ use engine::{
 use game::{
     calibration::{
         esc_closes_menu, records_calibration_shot, round_change_message, CalibrationProgress,
-        PlayMode, PlaySession,
+        PlayMode, PlaySession, RunTotals,
     },
     hit_detection::Ray,
     tasks::{TaskManager, TaskState, TaskType},
@@ -46,6 +46,8 @@ struct GameState {
     rad_per_count: f32,
     player_dpi: f64,
     current_session_points: Vec<MetricPoint>,
+    /// Score and time banked from earlier segments of a paused-and-resumed calibration.
+    calibration_totals: RunTotals,
     shot_counter: u32,
     last_countdown_sec: i32,
 }
@@ -117,6 +119,7 @@ impl GameState {
             rad_per_count,
             player_dpi,
             current_session_points: Vec::new(),
+            calibration_totals: RunTotals::default(),
             shot_counter: 0,
             last_countdown_sec: 4,
         }
@@ -234,8 +237,9 @@ impl GameState {
         let result = self
             .sensitivity_engine
             .build_calibration_result(chrono::Utc::now());
-        let metrics = self.task_manager.current_metrics();
-        self.record_session("Calibration".into(), result.cm_360, metrics.score, metrics.duration_secs);
+        let m = self.task_manager.current_metrics();
+        let totals = self.calibration_totals.with_current(m.score, m.duration_secs);
+        self.record_session("Calibration".into(), result.cm_360, totals.score, totals.duration_secs);
         self.update_profile(|p| p.last_calibration = Some(result));
         self.audio_manager.play_complete();
 
@@ -274,6 +278,7 @@ impl GameState {
             UiAction::Navigate(screen) => self.open_menu(screen),
             UiAction::StartCalibration => {
                 self.sensitivity_engine.reset_calibration();
+                self.calibration_totals = RunTotals::default();
                 self.set_cm_360(self.sensitivity_engine.psa.current_test_cm_360);
                 self.start_run(PlayMode::Calibration, TaskType::Calibration);
             }
@@ -536,6 +541,12 @@ impl GameState {
             if self.session.paused {
                 self.resume();
             } else {
+                // Bank this segment now: the task's clock keeps running while paused, and
+                // Resume restarts the task.
+                if self.task_manager.state == TaskState::Running {
+                    let m = self.task_manager.current_metrics();
+                    self.calibration_totals.add_segment(m.score, m.duration_secs);
+                }
                 self.session.paused = true;
                 self.lock_cursor(false);
             }

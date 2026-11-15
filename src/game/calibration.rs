@@ -35,6 +35,28 @@ pub fn esc_closes_menu(task_state: TaskState, onboarding_open: bool) -> bool {
     !onboarding_open && matches!(task_state, TaskState::Running | TaskState::Countdown { .. })
 }
 
+/// Score and play time of a calibration run that was paused and resumed. Each resume restarts
+/// the target task, so finished segments are banked here.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct RunTotals {
+    pub score: u64,
+    pub duration_secs: f32,
+}
+
+impl RunTotals {
+    pub fn add_segment(&mut self, score: u64, duration_secs: f32) {
+        self.score += score;
+        self.duration_secs += duration_secs;
+    }
+
+    /// Totals including the segment still in progress.
+    pub fn with_current(self, score: u64, duration_secs: f32) -> RunTotals {
+        let mut t = self;
+        t.add_segment(score, duration_secs);
+        t
+    }
+}
+
 /// Read-only view of calibration progress for the HUD.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CalibrationProgress {

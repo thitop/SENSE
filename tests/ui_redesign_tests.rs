@@ -693,6 +693,17 @@ fn calibration_shot_reports_completion() {
 }
 
 #[test]
+fn run_totals_add_up_segments_across_pauses() {
+    use aim_trainer::game::calibration::RunTotals;
+    let mut t = RunTotals::default();
+    assert_eq!(t.with_current(500, 10.0), RunTotals { score: 500, duration_secs: 10.0 });
+    t.add_segment(1200, 20.0);
+    t.add_segment(300, 5.5);
+    assert_eq!(t, RunTotals { score: 1500, duration_secs: 25.5 });
+    assert_eq!(t.with_current(800, 15.0), RunTotals { score: 2300, duration_secs: 40.5 });
+}
+
+#[test]
 fn current_metrics_reports_running_task() {
     let mut tm = TaskManager::new();
     tm.set_task(TaskType::Calibration);
