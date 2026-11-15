@@ -26,6 +26,7 @@ egui = "0.31"
 egui-wgpu = "0.31"
 egui-winit = "0.31"
 egui_plot = "0.31"
+egui-phosphor = "0.9"
 
 # Audio
 rodio = "0.20"

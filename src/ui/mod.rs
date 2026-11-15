@@ -1,4 +1,5 @@
 pub mod graphs;
+pub mod theme;
 
 use egui::{vec2, Align, Color32, CornerRadius, Frame, Layout, Margin, Rect, RichText, Stroke};
 use graphs::PerformanceGraphs;
@@ -45,7 +46,7 @@ impl UiState {
 }
 
 // Clean Modern Esports Theme
-mod theme {
+mod legacy_theme {
     use egui::Color32;
 
     pub const BG_OVERLAY: Color32 = Color32::from_rgba_premultiplied(10, 12, 16, 240);
@@ -81,7 +82,7 @@ pub fn render_ui(
 
     // 2. Modern Fullscreen App Dashboard
     egui::CentralPanel::default()
-        .frame(Frame::NONE.fill(theme::BG_OVERLAY))
+        .frame(Frame::NONE.fill(legacy_theme::BG_OVERLAY))
         .show(ctx, |ui| {
             let available_rect = ui.available_rect_before_wrap();
             let content_rect = Rect::from_center_size(
@@ -94,9 +95,9 @@ pub fn render_ui(
 
             ui.allocate_ui_at_rect(content_rect, |ui| {
                 Frame::NONE
-                    .fill(theme::PANEL_BG)
+                    .fill(legacy_theme::PANEL_BG)
                     .corner_radius(CornerRadius::same(14))
-                    .stroke(Stroke::new(1.0_f32, theme::BORDER_COLOR))
+                    .stroke(Stroke::new(1.0_f32, legacy_theme::BORDER_COLOR))
                     .show(ui, |ui| {
                         ui.set_min_size(content_rect.size());
 
@@ -156,11 +157,11 @@ fn apply_custom_style(ctx: &egui::Context) {
     style.visuals.widgets.hovered.corner_radius = CornerRadius::same(8);
     style.visuals.widgets.active.corner_radius = CornerRadius::same(8);
 
-    style.visuals.widgets.inactive.bg_fill = theme::CARD_BG;
-    style.visuals.widgets.hovered.bg_fill = theme::CARD_BG_HOVER;
-    style.visuals.widgets.active.bg_fill = theme::PRIMARY;
+    style.visuals.widgets.inactive.bg_fill = legacy_theme::CARD_BG;
+    style.visuals.widgets.hovered.bg_fill = legacy_theme::CARD_BG_HOVER;
+    style.visuals.widgets.active.bg_fill = legacy_theme::PRIMARY;
 
-    style.visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, theme::TEXT_PRIMARY);
+    style.visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, legacy_theme::TEXT_PRIMARY);
     style.visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, Color32::WHITE);
     style.visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, Color32::BLACK);
 
@@ -184,13 +185,13 @@ fn render_ingame_hud(
                 .inner_margin(Margin::symmetric(18, 8))
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.colored_label(theme::PRIMARY, format!("⚡ {} FPS", fps));
-                        ui.label(RichText::new("•").color(theme::TEXT_MUTED));
-                        ui.colored_label(theme::ACCENT_GOLD, task_manager.current_task_name());
-                        ui.label(RichText::new("•").color(theme::TEXT_MUTED));
-                        ui.colored_label(theme::ACCENT_BLUE, format!("{:.1} cm/360°", current_cm_360));
-                        ui.label(RichText::new("•").color(theme::TEXT_MUTED));
-                        ui.label(RichText::new("[ESC] Menu").color(theme::TEXT_MUTED));
+                        ui.colored_label(legacy_theme::PRIMARY, format!("⚡ {} FPS", fps));
+                        ui.label(RichText::new("•").color(legacy_theme::TEXT_MUTED));
+                        ui.colored_label(legacy_theme::ACCENT_GOLD, task_manager.current_task_name());
+                        ui.label(RichText::new("•").color(legacy_theme::TEXT_MUTED));
+                        ui.colored_label(legacy_theme::ACCENT_BLUE, format!("{:.1} cm/360°", current_cm_360));
+                        ui.label(RichText::new("•").color(legacy_theme::TEXT_MUTED));
+                        ui.label(RichText::new("[ESC] Menu").color(legacy_theme::TEXT_MUTED));
                     });
                 });
         });
@@ -212,7 +213,7 @@ fn render_ingame_hud(
                             RichText::new(text)
                                 .size(72.0)
                                 .strong()
-                                .color(theme::ACCENT_GOLD),
+                                .color(legacy_theme::ACCENT_GOLD),
                         );
                         ui.label(
                             RichText::new(format!(
@@ -220,7 +221,7 @@ fn render_ingame_hud(
                                 task_manager.current_task_name().to_uppercase()
                             ))
                             .size(16.0)
-                            .color(theme::TEXT_PRIMARY),
+                            .color(legacy_theme::TEXT_PRIMARY),
                         );
                     });
                 });
@@ -233,14 +234,14 @@ fn render_ingame_hud(
                         .fill(Color32::from_black_alpha(220))
                         .corner_radius(CornerRadius::same(16))
                         .inner_margin(Margin::same(24))
-                        .stroke(Stroke::new(1.5_f32, theme::PRIMARY))
+                        .stroke(Stroke::new(1.5_f32, legacy_theme::PRIMARY))
                         .show(ui, |ui| {
                             ui.vertical_centered(|ui| {
                                 ui.label(
                                     RichText::new("SESSION COMPLETED")
                                         .size(24.0)
                                         .strong()
-                                        .color(theme::PRIMARY),
+                                        .color(legacy_theme::PRIMARY),
                                 );
                                 if let Some(m) = &task_manager.last_completed_metrics {
                                     ui.add_space(8.0);
@@ -250,14 +251,14 @@ fn render_ingame_hud(
                                             m.score, m.accuracy, m.avg_reaction_time_ms
                                         ))
                                         .size(16.0)
-                                        .color(theme::TEXT_PRIMARY),
+                                        .color(legacy_theme::TEXT_PRIMARY),
                                     );
                                 }
                                 ui.add_space(14.0);
                                 ui.label(
                                     RichText::new("Press [ESC] for Full Analytics or [R] to Retry")
                                         .size(13.0)
-                                        .color(theme::TEXT_MUTED),
+                                        .color(legacy_theme::TEXT_MUTED),
                                 );
                             });
                         });
@@ -282,12 +283,12 @@ fn render_top_navbar(
                     RichText::new("AIM TRAINER")
                         .size(16.0)
                         .strong()
-                        .color(theme::TEXT_PRIMARY),
+                        .color(legacy_theme::TEXT_PRIMARY),
                 );
                 ui.label(
                     RichText::new("Perfect Sensitivity System")
                         .size(11.0)
-                        .color(theme::PRIMARY),
+                        .color(legacy_theme::PRIMARY),
                 );
             });
         });
@@ -305,19 +306,19 @@ fn render_top_navbar(
         for (screen, label) in tabs {
             let is_selected = ui_state.current_screen == screen;
             let text_color = if is_selected {
-                theme::PRIMARY
+                legacy_theme::PRIMARY
             } else {
-                theme::TEXT_MUTED
+                legacy_theme::TEXT_MUTED
             };
 
             let btn = egui::Button::new(RichText::new(label).size(13.0).color(text_color))
                 .fill(if is_selected {
-                    theme::CARD_BG_HOVER
+                    legacy_theme::CARD_BG_HOVER
                 } else {
                     Color32::TRANSPARENT
                 })
                 .stroke(if is_selected {
-                    Stroke::new(1.0_f32, theme::PRIMARY)
+                    Stroke::new(1.0_f32, legacy_theme::PRIMARY)
                 } else {
                     Stroke::NONE
                 });
@@ -336,7 +337,7 @@ fn render_top_navbar(
                     .strong()
                     .color(Color32::BLACK),
             )
-            .fill(theme::PRIMARY)
+            .fill(legacy_theme::PRIMARY)
             .corner_radius(CornerRadius::same(20))
             .min_size(vec2(130.0, 34.0));
 
@@ -349,7 +350,7 @@ fn render_top_navbar(
                 ui.label(
                     RichText::new(format!("👤 {}", profile.name))
                         .size(13.0)
-                        .color(theme::TEXT_PRIMARY),
+                        .color(legacy_theme::TEXT_PRIMARY),
                 );
             }
         });
@@ -368,9 +369,9 @@ fn render_dashboard_view(
 
     // 1. Hero Recommendation Banner (Card)
     Frame::NONE
-        .fill(theme::CARD_BG)
+        .fill(legacy_theme::CARD_BG)
         .corner_radius(CornerRadius::same(12))
-        .stroke(Stroke::new(1.0_f32, theme::BORDER_COLOR))
+        .stroke(Stroke::new(1.0_f32, legacy_theme::BORDER_COLOR))
         .inner_margin(Margin::same(20))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -378,7 +379,7 @@ fn render_dashboard_view(
                     ui.label(
                         RichText::new("CALCULATED OPTIMAL SENSITIVITY")
                             .size(12.0)
-                            .color(theme::PRIMARY)
+                            .color(legacy_theme::PRIMARY)
                             .strong(),
                     );
                     ui.horizontal(|ui| {
@@ -386,9 +387,9 @@ fn render_dashboard_view(
                             RichText::new(format!("{:.1}", rec.optimal_cm_360))
                                 .size(38.0)
                                 .strong()
-                                .color(theme::ACCENT_GOLD),
+                                .color(legacy_theme::ACCENT_GOLD),
                         );
-                        ui.label(RichText::new("cm / 360°").size(18.0).color(theme::TEXT_MUTED));
+                        ui.label(RichText::new("cm / 360°").size(18.0).color(legacy_theme::TEXT_MUTED));
                     });
                     ui.label(
                         RichText::new(format!(
@@ -397,7 +398,7 @@ fn render_dashboard_view(
                             sensitivity_engine.player_dpi
                         ))
                         .size(12.0)
-                        .color(theme::TEXT_MUTED),
+                        .color(legacy_theme::TEXT_MUTED),
                     );
                 });
 
@@ -416,7 +417,7 @@ fn render_dashboard_view(
         RichText::new("TOP GAME CONVERSIONS")
             .size(12.0)
             .strong()
-            .color(theme::TEXT_MUTED),
+            .color(legacy_theme::TEXT_MUTED),
     );
     ui.horizontal(|ui| {
         let popular = [
@@ -433,10 +434,10 @@ fn render_dashboard_view(
                     other => other,
                 };
                 Frame::NONE
-                    .fill(theme::CARD_BG)
+                    .fill(legacy_theme::CARD_BG)
                     .corner_radius(CornerRadius::same(10))
                     .inner_margin(Margin::same(12))
-                    .stroke(Stroke::new(1.0_f32, theme::BORDER_COLOR))
+                    .stroke(Stroke::new(1.0_f32, legacy_theme::BORDER_COLOR))
                     .show(ui, |ui| {
                         ui.set_width(170.0);
                         ui.vertical(|ui| {
@@ -444,13 +445,13 @@ fn render_dashboard_view(
                                 RichText::new(short_name)
                                     .size(13.0)
                                     .strong()
-                                    .color(theme::TEXT_PRIMARY),
+                                    .color(legacy_theme::TEXT_PRIMARY),
                             );
                             ui.label(
                                 RichText::new(format!("{:.3}", sens))
                                     .size(20.0)
                                     .strong()
-                                    .color(theme::PRIMARY),
+                                    .color(legacy_theme::PRIMARY),
                             );
                         });
                     });
@@ -465,7 +466,7 @@ fn render_dashboard_view(
         RichText::new("SELECT A TRAINING SCENARIO")
             .size(12.0)
             .strong()
-            .color(theme::TEXT_MUTED),
+            .color(legacy_theme::TEXT_MUTED),
     );
     ui.horizontal_wrapped(|ui| {
         let quick_tasks = [
@@ -498,10 +499,10 @@ fn render_dashboard_view(
 
         for (t_type, title, desc) in quick_tasks {
             Frame::NONE
-                .fill(theme::CARD_BG)
+                .fill(legacy_theme::CARD_BG)
                 .corner_radius(CornerRadius::same(10))
                 .inner_margin(Margin::same(14))
-                .stroke(Stroke::new(1.0_f32, theme::BORDER_COLOR))
+                .stroke(Stroke::new(1.0_f32, legacy_theme::BORDER_COLOR))
                 .show(ui, |ui| {
                     ui.set_width(175.0);
                     ui.set_height(90.0);
@@ -510,9 +511,9 @@ fn render_dashboard_view(
                             RichText::new(title)
                                 .size(14.0)
                                 .strong()
-                                .color(theme::TEXT_PRIMARY),
+                                .color(legacy_theme::TEXT_PRIMARY),
                         );
-                        ui.label(RichText::new(desc).size(11.0).color(theme::TEXT_MUTED));
+                        ui.label(RichText::new(desc).size(11.0).color(legacy_theme::TEXT_MUTED));
                         ui.add_space(4.0);
                         if ui.button("Play Now ▶").clicked() {
                             task_manager.set_task(t_type);
@@ -531,7 +532,7 @@ fn render_tasks_view(ui: &mut egui::Ui, ui_state: &mut UiState, task_manager: &m
         RichText::new(
             "Each scenario exercises a distinct motor skill and trains your neuro-muscular adaptation.",
         )
-        .color(theme::TEXT_MUTED),
+        .color(legacy_theme::TEXT_MUTED),
     );
     ui.add_space(12.0);
 
@@ -570,10 +571,10 @@ fn render_tasks_view(ui: &mut egui::Ui, ui_state: &mut UiState, task_manager: &m
 
     for (t_type, title, desc, meta) in scenarios {
         Frame::NONE
-            .fill(theme::CARD_BG)
+            .fill(legacy_theme::CARD_BG)
             .corner_radius(CornerRadius::same(10))
             .inner_margin(Margin::same(16))
-            .stroke(Stroke::new(1.0_f32, theme::BORDER_COLOR))
+            .stroke(Stroke::new(1.0_f32, legacy_theme::BORDER_COLOR))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
@@ -581,11 +582,11 @@ fn render_tasks_view(ui: &mut egui::Ui, ui_state: &mut UiState, task_manager: &m
                             RichText::new(title)
                                 .size(16.0)
                                 .strong()
-                                .color(theme::TEXT_PRIMARY),
+                                .color(legacy_theme::TEXT_PRIMARY),
                         );
-                        ui.label(RichText::new(desc).size(13.0).color(theme::TEXT_PRIMARY));
+                        ui.label(RichText::new(desc).size(13.0).color(legacy_theme::TEXT_PRIMARY));
                         ui.add_space(4.0);
-                        ui.label(RichText::new(meta).size(11.0).color(theme::PRIMARY));
+                        ui.label(RichText::new(meta).size(11.0).color(legacy_theme::PRIMARY));
                     });
 
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -595,7 +596,7 @@ fn render_tasks_view(ui: &mut egui::Ui, ui_state: &mut UiState, task_manager: &m
                                 .strong()
                                 .color(Color32::BLACK),
                         )
-                        .fill(theme::PRIMARY)
+                        .fill(legacy_theme::PRIMARY)
                         .min_size(vec2(140.0, 36.0));
 
                         if ui.add(btn).clicked() {
@@ -618,28 +619,28 @@ fn render_calibration_view(ui: &mut egui::Ui, sensitivity_engine: &SensitivityEn
         RichText::new(
             "Your empirical results converted directly to your native game sensitivities.",
         )
-        .color(theme::TEXT_MUTED),
+        .color(legacy_theme::TEXT_MUTED),
     );
     ui.add_space(12.0);
 
     Frame::NONE
-        .fill(theme::CARD_BG)
+        .fill(legacy_theme::CARD_BG)
         .corner_radius(CornerRadius::same(10))
         .inner_margin(Margin::same(16))
-        .stroke(Stroke::new(1.0_f32, theme::BORDER_COLOR))
+        .stroke(Stroke::new(1.0_f32, legacy_theme::BORDER_COLOR))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
                     ui.label(
                         RichText::new("UNIVERSAL SENSITIVITY")
                             .size(11.0)
-                            .color(theme::TEXT_MUTED),
+                            .color(legacy_theme::TEXT_MUTED),
                     );
                     ui.label(
                         RichText::new(format!("{:.2} cm/360°", rec.optimal_cm_360))
                             .size(30.0)
                             .strong()
-                            .color(theme::ACCENT_GOLD),
+                            .color(legacy_theme::ACCENT_GOLD),
                     );
                 });
                 ui.add_space(40.0);
@@ -647,7 +648,7 @@ fn render_calibration_view(ui: &mut egui::Ui, sensitivity_engine: &SensitivityEn
                     ui.label(
                         RichText::new("METHODOLOGY BREAKDOWN")
                             .size(11.0)
-                            .color(theme::TEXT_MUTED),
+                            .color(legacy_theme::TEXT_MUTED),
                     );
                     ui.label(
                         RichText::new(format!(
@@ -655,7 +656,7 @@ fn render_calibration_view(ui: &mut egui::Ui, sensitivity_engine: &SensitivityEn
                             rec.psa_result_cm_360.unwrap_or(rec.optimal_cm_360)
                         ))
                         .size(13.0)
-                        .color(theme::TEXT_PRIMARY),
+                        .color(legacy_theme::TEXT_PRIMARY),
                     );
                     ui.label(
                         RichText::new(format!(
@@ -663,7 +664,7 @@ fn render_calibration_view(ui: &mut egui::Ui, sensitivity_engine: &SensitivityEn
                             rec.statistical_peak_cm_360.unwrap_or(rec.optimal_cm_360)
                         ))
                         .size(13.0)
-                        .color(theme::TEXT_PRIMARY),
+                        .color(legacy_theme::TEXT_PRIMARY),
                     );
                 });
             });
@@ -674,14 +675,14 @@ fn render_calibration_view(ui: &mut egui::Ui, sensitivity_engine: &SensitivityEn
         RichText::new("IN-GAME SENSITIVITY TABLE")
             .size(12.0)
             .strong()
-            .color(theme::TEXT_MUTED),
+            .color(legacy_theme::TEXT_MUTED),
     );
 
     Frame::NONE
-        .fill(theme::CARD_BG)
+        .fill(legacy_theme::CARD_BG)
         .corner_radius(CornerRadius::same(10))
         .inner_margin(Margin::same(16))
-        .stroke(Stroke::new(1.0_f32, theme::BORDER_COLOR))
+        .stroke(Stroke::new(1.0_f32, legacy_theme::BORDER_COLOR))
         .show(ui, |ui| {
             egui::Grid::new("conversions_table")
                 .striped(true)
@@ -692,23 +693,23 @@ fn render_calibration_view(ui: &mut egui::Ui, sensitivity_engine: &SensitivityEn
                         RichText::new("GAME TITLE")
                             .size(12.0)
                             .strong()
-                            .color(theme::TEXT_MUTED),
+                            .color(legacy_theme::TEXT_MUTED),
                     );
                     ui.label(
                         RichText::new("RECOMMENDED VALUE")
                             .size(12.0)
                             .strong()
-                            .color(theme::TEXT_MUTED),
+                            .color(legacy_theme::TEXT_MUTED),
                     );
                     ui.end_row();
 
                     for (game, sens) in &rec.conversions {
-                        ui.label(RichText::new(game).size(14.0).color(theme::TEXT_PRIMARY));
+                        ui.label(RichText::new(game).size(14.0).color(legacy_theme::TEXT_PRIMARY));
                         ui.label(
                             RichText::new(format!("{:.4}", sens))
                                 .size(16.0)
                                 .strong()
-                                .color(theme::PRIMARY),
+                                .color(legacy_theme::PRIMARY),
                         );
                         ui.end_row();
                     }
@@ -723,7 +724,7 @@ fn render_analytics_view(
 ) {
     ui.heading("Performance Analytics & Graphs");
     ui.label(
-        RichText::new("Interactive visualizations powered by egui_plot.").color(theme::TEXT_MUTED),
+        RichText::new("Interactive visualizations powered by egui_plot.").color(legacy_theme::TEXT_MUTED),
     );
     ui.add_space(12.0);
 
@@ -774,23 +775,23 @@ fn render_settings_view(
 
     // 1. Mouse Hardware DPI Configuration Card
     Frame::NONE
-        .fill(theme::CARD_BG)
+        .fill(legacy_theme::CARD_BG)
         .corner_radius(CornerRadius::same(10))
         .inner_margin(Margin::same(16))
-        .stroke(Stroke::new(1.0_f32, theme::BORDER_COLOR))
+        .stroke(Stroke::new(1.0_f32, legacy_theme::BORDER_COLOR))
         .show(ui, |ui| {
             ui.label(
                 RichText::new("MOUSE HARDWARE DPI")
                     .size(14.0)
                     .strong()
-                    .color(theme::TEXT_PRIMARY),
+                    .color(legacy_theme::TEXT_PRIMARY),
             );
             ui.label(
                 RichText::new(
                     "Your mouse physical sensor DPI (e.g. 400, 800, 1600). Crucial for authentic cm/360° calculation.",
                 )
                 .size(12.0)
-                .color(theme::TEXT_MUTED),
+                .color(legacy_theme::TEXT_MUTED),
             );
             ui.add_space(8.0);
 
@@ -815,16 +816,16 @@ fn render_settings_view(
 
     // 2. Audio Settings Card
     Frame::NONE
-        .fill(theme::CARD_BG)
+        .fill(legacy_theme::CARD_BG)
         .corner_radius(CornerRadius::same(10))
         .inner_margin(Margin::same(16))
-        .stroke(Stroke::new(1.0_f32, theme::BORDER_COLOR))
+        .stroke(Stroke::new(1.0_f32, legacy_theme::BORDER_COLOR))
         .show(ui, |ui| {
             ui.label(
                 RichText::new("PROCEDURAL AUDIO")
                     .size(14.0)
                     .strong()
-                    .color(theme::TEXT_PRIMARY),
+                    .color(legacy_theme::TEXT_PRIMARY),
             );
             ui.checkbox(
                 &mut audio_manager.is_enabled,
@@ -838,16 +839,16 @@ fn render_settings_view(
 
     // 3. Profiles Management Card
     Frame::NONE
-        .fill(theme::CARD_BG)
+        .fill(legacy_theme::CARD_BG)
         .corner_radius(CornerRadius::same(10))
         .inner_margin(Margin::same(16))
-        .stroke(Stroke::new(1.0_f32, theme::BORDER_COLOR))
+        .stroke(Stroke::new(1.0_f32, legacy_theme::BORDER_COLOR))
         .show(ui, |ui| {
             ui.label(
                 RichText::new("PLAYER PROFILES")
                     .size(14.0)
                     .strong()
-                    .color(theme::TEXT_PRIMARY),
+                    .color(legacy_theme::TEXT_PRIMARY),
             );
             ui.horizontal(|ui| {
                 ui.add(
@@ -874,11 +875,11 @@ fn render_settings_view(
                     let is_active =
                         Some(&p.id) == data_manager.profile_manager.active_profile_id.as_ref();
                     if is_active {
-                        ui.colored_label(theme::PRIMARY, "● [ACTIVE]");
+                        ui.colored_label(legacy_theme::PRIMARY, "● [ACTIVE]");
                     }
                     ui.label(
                         RichText::new(format!("{} (DPI: {:.0})", p.name, p.dpi))
-                            .color(theme::TEXT_PRIMARY),
+                            .color(legacy_theme::TEXT_PRIMARY),
                     );
 
                     if !is_active && ui.button("Select").clicked() {

@@ -199,6 +199,25 @@ fn reset_and_build_result() {
     assert_eq!(r.rounds[0].tested_cm_360, 47.5);
 }
 
+// ---------- Task 3: theme, fonts, icons ----------
+
+use aim_trainer::ui::theme;
+
+#[test]
+fn theme_installs_font_families() {
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let _ = ctx.run(Default::default(), |_| {});
+    let families = ctx.fonts(|f| f.families());
+    for name in ["display", "display_bold", "medium"] {
+        assert!(
+            families.contains(&egui::FontFamily::Name(name.into())),
+            "missing font family {name}"
+        );
+    }
+    assert_eq!(ctx.style().visuals.panel_fill, theme::BG);
+}
+
 #[test]
 fn calibration_task_type_is_endless_flick() {
     let mut tm = TaskManager::new();
