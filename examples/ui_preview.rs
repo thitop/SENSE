@@ -144,6 +144,20 @@ fn scenes() -> Vec<Scene> {
         v.push(s);
     }
 
+    // "Run setup again" on a profile that's already set up: Cancel is offered.
+    let mut rerun = base("setup-rerun", L, Screen::Settings, true);
+    rerun.state.onboarding = Some(OnboardingDraft::from_profile(&rerun.profile));
+    v.push(rerun);
+
+    // "35" typed instead of "0.35": flagged as implausible.
+    let mut typo = base("setup-typo", L, Screen::Home, false);
+    typo.profile.onboarded = false;
+    let mut d = OnboardingDraft::from_profile(&typo.profile);
+    d.step = 3;
+    d.sens = "35".into();
+    typo.state.onboarding = Some(d);
+    v.push(typo);
+
     let mut psa = PsaCalibrator::new(15.0, 80.0, 7);
     for i in 0..24 {
         psa.record_shot(if i < 10 { ShotTrajectoryPattern::Overshoot } else { ShotTrajectoryPattern::Undershoot });
