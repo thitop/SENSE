@@ -46,6 +46,40 @@ pub enum TaskType {
     Switching,
     MicroAdjust,
     Speed,
+    /// Endless flick targets; the game loop ends it when PSA calibration completes.
+    Calibration,
+}
+
+/// Flick targets with no target limit, shown as "Calibration".
+struct CalibrationTask(FlickTask);
+
+impl Task for CalibrationTask {
+    fn name(&self) -> &'static str {
+        "Calibration"
+    }
+    fn description(&self) -> &'static str {
+        "Shoot targets while the sensitivity is narrowed down round by round."
+    }
+    fn start(&mut self) {
+        self.0.start()
+    }
+    fn update(&mut self, dt: f32, crosshair_ray: Ray) {
+        self.0.update(dt, crosshair_ray)
+    }
+    fn on_click(&mut self, ray: Ray) -> bool {
+        self.0.on_click(ray)
+    }
+    fn is_complete(&self) -> bool {
+        false
+    }
+    fn get_render_targets(&self) -> Vec<(Vec3, f32)> {
+        self.0.get_render_targets()
+    }
+    fn get_metrics(&self) -> TaskMetrics {
+        let mut m = self.0.get_metrics();
+        m.task_name = "Calibration".into();
+        m
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -84,6 +118,7 @@ impl TaskManager {
             TaskType::Switching => Box::new(SwitchingTask::new(25, 4, 0.32)),
             TaskType::MicroAdjust => Box::new(MicroAdjustTask::new(30, 0.16)),
             TaskType::Speed => Box::new(SpeedTask::new(30)),
+            TaskType::Calibration => Box::new(CalibrationTask(FlickTask::new(usize::MAX, 0.35))),
         };
         self.state = TaskState::NotStarted;
     }

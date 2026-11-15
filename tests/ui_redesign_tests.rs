@@ -51,3 +51,158 @@ fn calibration_result_round_trips() {
     assert_eq!(cal.rounds, rounds);
     assert_eq!(cal.samples.len(), 3);
 }
+
+// ---------- Task 2: calibration logic and input helpers ----------
+
+use aim_trainer::game::calibration::{
+    delta_text, parse_dpi, parse_game_sens, primary_game, round_change_message, CalibrationProgress,
+    ConfidenceLevel, PlayMode, PlaySession,
+};
+use aim_trainer::game::tasks::{TaskManager, TaskType};
+use aim_trainer::sensitivity::games::GameProfile;
+use aim_trainer::sensitivity::path_recorder::ShotTrajectoryPattern;
+use aim_trainer::sensitivity::psa::PsaCalibrator;
+use aim_trainer::sensitivity::SensitivityEngine;
+
+fn game(id: &str) -> GameProfile {
+    GameProfile {
+        id: id.into(),
+        name: id.to_uppercase(),
+        yaw: 0.022,
+        default_fov: 103.0,
+    }
+}
+
+#[test]
+fn play_session_gates_calibration() {
+    let s = |mode, paused| PlaySession { mode, paused };
+    assert!(!s(PlayMode::Practice, false).records_calibration());
+    assert!(!s(PlayMode::Practice, true).records_calibration());
+    assert!(!s(PlayMode::Calibration, true).records_calibration());
+    assert!(s(PlayMode::Calibration, false).records_calibration());
+}
+
+#[test]
+fn progress_reflects_psa() {
+    let mut psa = PsaCalibrator::new(15.0, 80.0, 7);
+    for _ in 0..4 {
+        psa.record_shot(ShotTrajectoryPattern::Direct);
+    }
+    let p = CalibrationProgress::from_psa(&psa);
+    assert_eq!(p.round, 1);
+    assert_eq!(p.max_rounds, 7);
+    assert_eq!(p.shot_in_round, 4);
+    assert_eq!(p.shots_per_round, 10);
+    assert_eq!(p.testing_cm_360, 47.5);
+    assert_eq!(p.low_cm_360, 15.0);
+    assert_eq!(p.high_cm_360, 80.0);
+    assert!(!p.completed);
+
+    for _ in 0..6 {
+        psa.record_shot(ShotTrajectoryPattern::Overshoot);
+    }
+    let p = CalibrationProgress::from_psa(&psa);
+    assert_eq!(p.round, 2);
+    assert_eq!(p.shot_in_round, 0);
+    assert_eq!(p.low_cm_360, 47.5);
+}
+
+#[test]
+fn progress_round_is_clamped_when_completed() {
+    let mut psa = PsaCalibrator::new(15.0, 80.0, 1);
+    for _ in 0..10 {
+        psa.record_shot(ShotTrajectoryPattern::Overshoot);
+    }
+    let p = CalibrationProgress::from_psa(&psa);
+    assert!(p.completed);
+    assert_eq!(p.round, 1);
+}
+
+#[test]
+fn round_change_messages() {
+    assert_eq!(
+        round_change_message(PsaRoundConclusion::TooFastNeedSlower),
+        "Sensitivity changed: slower"
+    );
+    assert_eq!(
+        round_change_message(PsaRoundConclusion::TooSlowNeedFaster),
+        "Sensitivity changed: faster"
+    );
+    assert_eq!(round_change_message(PsaRoundConclusion::BalancedNarrow), "Range narrowed");
+}
+
+#[test]
+fn confidence_thresholds() {
+    assert_eq!(ConfidenceLevel::from_score(0.75), ConfidenceLevel::High);
+    assert_eq!(ConfidenceLevel::from_score(0.7499), ConfidenceLevel::Medium);
+    assert_eq!(ConfidenceLevel::from_score(0.5), ConfidenceLevel::Medium);
+    assert_eq!(ConfidenceLevel::from_score(0.49), ConfidenceLevel::Low);
+    assert_eq!(ConfidenceLevel::High.label(), "High confidence");
+    assert_eq!(ConfidenceLevel::Medium.label(), "Medium confidence");
+    assert_eq!(ConfidenceLevel::Low.label(), "Low confidence");
+}
+
+#[test]
+fn delta_text_cases() {
+    assert_eq!(delta_text(34.2, 41.6), "7.4 cm faster than now");
+    assert_eq!(delta_text(45.0, 40.0), "5.0 cm slower than now");
+    assert_eq!(delta_text(40.02, 40.0), "Same as now");
+}
+
+#[test]
+fn parse_dpi_cases() {
+    assert_eq!(parse_dpi(" 800 "), Ok(800.0));
+    assert_eq!(parse_dpi(""), Err("Enter a number"));
+    assert_eq!(parse_dpi("abc"), Err("Enter a number"));
+    for bad in ["0", "50", "60000", "-800"] {
+        assert_eq!(parse_dpi(bad), Err("DPI must be between 50 and 50000"), "{bad}");
+    }
+    assert_eq!(parse_dpi("NaN"), Err("Enter a number"));
+}
+
+#[test]
+fn parse_game_sens_cases() {
+    assert_eq!(parse_game_sens("0,35"), Ok(0.35));
+    assert_eq!(parse_game_sens("0.35"), Ok(0.35));
+    assert_eq!(parse_game_sens("-1"), Err("Sensitivity must be greater than 0"));
+    assert_eq!(parse_game_sens("0"), Err("Sensitivity must be greater than 0"));
+    assert_eq!(parse_game_sens("x"), Err("Enter a number"));
+    assert_eq!(parse_game_sens("inf"), Err("Enter a number"));
+}
+
+#[test]
+fn primary_game_falls_back() {
+    let games = vec![game("valorant"), game("cs2")];
+    assert_eq!(primary_game(&games, "cs2").unwrap().id, "cs2");
+    assert_eq!(primary_game(&games, "gone").unwrap().id, "valorant");
+    assert!(primary_game(&[], "valorant").is_none());
+}
+
+#[test]
+fn reset_and_build_result() {
+    let mut engine = SensitivityEngine::new(800.0);
+    for _ in 0..10 {
+        engine.psa.record_shot(ShotTrajectoryPattern::Overshoot);
+    }
+    assert_eq!(engine.psa.history.len(), 1);
+    engine.reset_calibration();
+    assert!(engine.psa.history.is_empty());
+    assert!(engine.analyzer.samples.is_empty());
+    assert_eq!(engine.psa.current_test_cm_360, 47.5);
+
+    for _ in 0..10 {
+        engine.psa.record_shot(ShotTrajectoryPattern::Overshoot);
+    }
+    let r = engine.build_calibration_result(Utc::now());
+    assert_eq!(r.rounds.len(), 1);
+    assert_eq!(r.rounds[0].conclusion, PsaRoundConclusion::TooFastNeedSlower);
+    assert_eq!(r.rounds[0].tested_cm_360, 47.5);
+}
+
+#[test]
+fn calibration_task_type_is_endless_flick() {
+    let mut tm = TaskManager::new();
+    tm.set_task(TaskType::Calibration);
+    assert_eq!(tm.current_type, TaskType::Calibration);
+    assert_eq!(tm.current_task_name(), "Calibration");
+}

@@ -1,3 +1,4 @@
+pub mod calibration;
 pub mod hit_detection;
 pub mod scoring;
 pub mod target;

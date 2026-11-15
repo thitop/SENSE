@@ -59,6 +59,15 @@ impl PsaCalibrator {
         }
     }
 
+    /// Shots recorded so far in the round in progress.
+    pub fn shots_in_round(&self) -> usize {
+        self.round_overshoots + self.round_undershoots + self.round_directs
+    }
+
+    pub fn shots_per_round(&self) -> usize {
+        self.shots_per_round
+    }
+
     pub fn record_shot(&mut self, pattern: ShotTrajectoryPattern) -> bool {
         match pattern {
             ShotTrajectoryPattern::Overshoot => self.round_overshoots += 1,

@@ -10,6 +10,9 @@ pub use games::{GameDatabase, GameProfile};
 pub use path_recorder::{MousePathRecorder, ShotMovementPath, ShotTrajectoryPattern};
 pub use psa::{PsaCalibrator, PsaRoundConclusion, PsaRoundResult};
 
+use crate::data::{CalibrationResult, CalibrationRound};
+use chrono::{DateTime, Utc};
+
 #[derive(Clone, Debug)]
 pub struct FinalSensitivityRecommendation {
     pub optimal_cm_360: f64,
@@ -35,6 +38,40 @@ impl SensitivityEngine {
             analyzer: StatisticalAnalyzer::new(),
             path_recorder: MousePathRecorder::new(),
             player_dpi: if player_dpi > 0.0 { player_dpi } else { 800.0 },
+        }
+    }
+
+    /// Start a fresh calibration: new PSA search, no analyzer samples, no shot in progress.
+    pub fn reset_calibration(&mut self) {
+        self.psa = PsaCalibrator::new(15.0, 80.0, 7);
+        self.analyzer = StatisticalAnalyzer::new();
+        self.path_recorder = MousePathRecorder::new();
+    }
+
+    /// Snapshot the finished calibration for persisting on the profile.
+    pub fn build_calibration_result(&self, at: DateTime<Utc>) -> CalibrationResult {
+        let rec = self.compute_final_recommendation();
+        CalibrationResult {
+            cm_360: rec.optimal_cm_360,
+            confidence: rec.confidence_score,
+            psa_cm: rec.psa_result_cm_360,
+            stat_cm: rec.statistical_peak_cm_360,
+            rounds: self
+                .psa
+                .history
+                .iter()
+                .map(|r| CalibrationRound {
+                    tested_cm_360: r.tested_cm_360,
+                    conclusion: r.conclusion,
+                })
+                .collect(),
+            samples: self
+                .analyzer
+                .samples
+                .iter()
+                .map(|s| (s.cm_360, s.composite_score))
+                .collect(),
+            at,
         }
     }
 
