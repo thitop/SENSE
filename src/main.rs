@@ -370,7 +370,7 @@ impl ApplicationHandler for App {
                 }
                 KeyCode::KeyC if !state.ui_state.is_overlay_open => {
                     state.ui_state.is_overlay_open = true;
-                    state.ui_state.current_screen = ui::UiScreen::Results;
+                    state.ui_state.current_screen = ui::UiScreen::Calibration;
                     state.input.set_cursor_locked(&state.renderer.window, false);
                 }
                 _ => {}
