@@ -51,3 +51,4 @@ pub fn intersect_ray_sphere(ray: Ray, center: Vec3, radius: f32) -> Option<(f32,
         None
     }
 }
+

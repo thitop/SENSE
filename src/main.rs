@@ -2,7 +2,10 @@ mod engine;
 mod game;
 
 use engine::{camera::Camera, input::InputManager, renderer::Renderer, timing::Timing};
-use game::{hit_detection::Ray, TargetManager};
+use game::{
+    hit_detection::Ray,
+    tasks::{TaskManager, TaskState, TaskType},
+};
 use std::sync::Arc;
 use winit::{
     application::ApplicationHandler,
@@ -17,9 +20,8 @@ struct GameState {
     camera: Camera,
     input: InputManager,
     timing: Timing,
-    target_manager: TargetManager,
+    task_manager: TaskManager,
     rad_per_count: f32,
-    target_spawn_timer: f32,
 }
 
 impl GameState {
@@ -31,7 +33,7 @@ impl GameState {
         let mut input = InputManager::new();
         input.register_raw_input(&window);
 
-        // Lock mouse immediately into FPS aim mode
+        // Lock mouse into FPS aim mode
         input.set_cursor_locked(&window, true);
 
         let timing = Timing::new(1000.0); // 1000 Hz physics tick
@@ -39,20 +41,17 @@ impl GameState {
         // Standard sensitivity: 800 DPI, 0.35 Valorant (approx 0.00038 rad per mouse count)
         let rad_per_count = 0.07_f32.to_radians() * 0.35;
 
-        let mut target_manager = TargetManager::new();
-        // Spawn 3 initial targets
-        for _ in 0..3 {
-            target_manager.spawn_random_target(0.35, None);
-        }
+        let mut task_manager = TaskManager::new();
+        task_manager.set_task(TaskType::Flick);
+        task_manager.start_task_with_countdown();
 
         Self {
             renderer,
             camera,
             input,
             timing,
-            target_manager,
+            task_manager,
             rad_per_count,
-            target_spawn_timer: 0.0,
         }
     }
 
@@ -65,34 +64,28 @@ impl GameState {
             self.camera.rotate(dx, dy, self.rad_per_count);
         }
 
+        let crosshair_ray = Ray {
+            origin: self.camera.position,
+            direction: self.camera.forward(),
+        };
+
         // 2. Handle Shooting / Hit Detection on Left Click
         if self.input.consume_left_click() && self.input.is_locked() {
-            let crosshair_ray = Ray {
-                origin: self.camera.position,
-                direction: self.camera.forward(),
-            };
-
-            let hit = self.target_manager.process_click(crosshair_ray);
-            if let Some(h) = hit {
-                log::info!("HIT target #{} at dist {:.2}m!", h.target_id, h.distance);
-            } else {
-                log::info!("MISS!");
+            let hit = self.task_manager.on_click(crosshair_ray);
+            if hit {
+                log::info!("Task Target Hit!");
             }
         }
 
-        // 3. Update Targets & Spawn new ones to keep 3 active targets
-        self.target_manager.update(dt);
-        self.target_spawn_timer += dt;
-        while self.target_manager.active_target_count() < 3 {
-            self.target_manager.spawn_random_target(0.35, None);
-        }
+        // 3. Update Task Manager state & targets
+        self.task_manager.update(dt, crosshair_ray);
 
         // 4. Update Camera Uniform to GPU
         self.renderer.update_camera(&self.camera);
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        let targets = self.target_manager.get_render_targets();
+        let targets = self.task_manager.get_render_targets();
         self.renderer.render(&targets)
     }
 
@@ -112,7 +105,7 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.is_none() {
             let window_attributes = Window::default_attributes()
-                .with_title("Aim Trainer - Target System Active")
+                .with_title("Aim Trainer - 5 Task Scenarios Ready")
                 .with_inner_size(winit::dpi::LogicalSize::new(1280, 720));
 
             let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
@@ -166,6 +159,38 @@ impl ApplicationHandler for App {
                 KeyCode::Escape => {
                     state.toggle_cursor_lock();
                 }
+                // Quick keybind shortcuts to test all 5 tasks (1..=5) & restart (R)
+                KeyCode::Digit1 => {
+                    log::info!("Switching to Flick Task");
+                    state.task_manager.set_task(TaskType::Flick);
+                    state.task_manager.start_task_with_countdown();
+                }
+                KeyCode::Digit2 => {
+                    log::info!("Switching to Tracking Task");
+                    state.task_manager.set_task(TaskType::Tracking);
+                    state.task_manager.start_task_with_countdown();
+                }
+                KeyCode::Digit3 => {
+                    log::info!("Switching to Switching Task");
+                    state.task_manager.set_task(TaskType::Switching);
+                    state.task_manager.start_task_with_countdown();
+                }
+                KeyCode::Digit4 => {
+                    log::info!("Switching to MicroAdjust Task");
+                    state.task_manager.set_task(TaskType::MicroAdjust);
+                    state.task_manager.start_task_with_countdown();
+                }
+                KeyCode::Digit5 => {
+                    log::info!("Switching to Speed Task");
+                    state.task_manager.set_task(TaskType::Speed);
+                    state.task_manager.start_task_with_countdown();
+                }
+                KeyCode::KeyR => {
+                    log::info!("Restarting current task");
+                    let cur = state.task_manager.current_type;
+                    state.task_manager.set_task(cur);
+                    state.task_manager.start_task_with_countdown();
+                }
                 _ => {}
             },
             WindowEvent::MouseInput {
@@ -182,15 +207,30 @@ impl ApplicationHandler for App {
                 state.update();
 
                 let fps = state.timing.fps();
-                let acc = state.target_manager.score_tracker.accuracy_percentage();
-                let score = state.target_manager.score_tracker.total_score;
-                let streak = state.target_manager.score_tracker.streak;
-                let avg_ms = state.target_manager.score_tracker.average_reaction_time().as_millis();
+                let task_name = state.task_manager.current_task_name();
 
-                let title = format!(
-                    "Aim Trainer | FPS: {} | Score: {} | Acc: {:.1}% | Streak: {} | Avg RT: {}ms (ESC to unlock)",
-                    fps, score, acc, streak, avg_ms
-                );
+                let title = match state.task_manager.state {
+                    TaskState::Countdown { remaining_secs } => {
+                        format!("Aim Trainer | Task: {} | Starting in {:.1}s... [1-5 Switch Task, R Restart]", task_name, remaining_secs)
+                    }
+                    TaskState::Running => {
+                        format!("Aim Trainer | FPS: {} | Task: {} | RUNNING [Keys 1-5 to switch, ESC to unlock]", fps, task_name)
+                    }
+                    TaskState::Finished => {
+                        if let Some(metrics) = &state.task_manager.last_completed_metrics {
+                            format!(
+                                "Aim Trainer | {} COMPLETED! Score: {} | Acc: {:.1}% | Avg RT: {:.0}ms | Press R to Retry",
+                                metrics.task_name, metrics.score, metrics.accuracy, metrics.avg_reaction_time_ms
+                            )
+                        } else {
+                            format!("Aim Trainer | {} FINISHED | Press R to Retry", task_name)
+                        }
+                    }
+                    TaskState::NotStarted => {
+                        format!("Aim Trainer | Task: {} | Ready (Press 1-5 or R)", task_name)
+                    }
+                };
+
                 state.renderer.window.set_title(&title);
 
                 match state.render() {

@@ -1,6 +1,7 @@
 pub mod hit_detection;
 pub mod scoring;
 pub mod target;
+pub mod tasks;
 
 use glam::Vec3;
 use rand::Rng;
@@ -10,11 +11,12 @@ use hit_detection::{intersect_ray_sphere, Ray, RayHit};
 use scoring::ScoreTracker;
 use target::{Target, TargetState};
 
+pub use tasks::{Task, TaskManager, TaskMetrics, TaskState, TaskType};
+
 pub struct TargetManager {
     targets: Vec<Target>,
     next_id: u64,
     pub score_tracker: ScoreTracker,
-    // Spawning bounds (in front of player)
     pub min_x: f32,
     pub max_x: f32,
     pub min_y: f32,
@@ -52,13 +54,6 @@ impl TargetManager {
         id
     }
 
-    pub fn spawn_target_at(&mut self, pos: Vec3, radius: f32, lifetime_secs: Option<f32>) -> u64 {
-        let id = self.next_id;
-        self.next_id += 1;
-        self.targets.push(Target::new(id, pos, radius, lifetime_secs));
-        id
-    }
-
     pub fn active_target_count(&self) -> usize {
         self.targets.iter().filter(|t| t.is_alive()).count()
     }
@@ -68,11 +63,9 @@ impl TargetManager {
             target.update(dt);
         }
 
-        // Clean up completely despawned targets
         self.targets.retain(|t| t.state != TargetState::Despawned);
     }
 
-    /// Perform raycast against all targets. Returns closest RayHit if any hit.
     pub fn raycast(&self, ray: Ray) -> Option<RayHit> {
         let mut closest_hit: Option<RayHit> = None;
 
@@ -98,7 +91,6 @@ impl TargetManager {
         closest_hit
     }
 
-    /// Process player click: tests raycast, updates hit target animation, and records score
     pub fn process_click(&mut self, ray: Ray) -> Option<RayHit> {
         if let Some(hit) = self.raycast(ray) {
             let now = Instant::now();
@@ -128,15 +120,10 @@ impl TargetManager {
         }
     }
 
-    /// Extract positions and current visual radius for rendering
     pub fn get_render_targets(&self) -> Vec<(Vec3, f32)> {
         self.targets
             .iter()
             .filter_map(|t| t.current_render_radius().map(|r| (t.position, r)))
             .collect()
-    }
-
-    pub fn clear(&mut self) {
-        self.targets.clear();
     }
 }
