@@ -587,3 +587,12 @@ fn calibration_task_type_is_endless_flick() {
     assert_eq!(tm.current_type, TaskType::Calibration);
     assert_eq!(tm.current_task_name(), "Calibration");
 }
+
+#[test]
+fn current_metrics_reports_running_task() {
+    let mut tm = TaskManager::new();
+    tm.set_task(TaskType::Calibration);
+    let m = tm.current_metrics();
+    assert_eq!(m.task_name, "Calibration");
+    assert_eq!(m.shots_fired, 0);
+}

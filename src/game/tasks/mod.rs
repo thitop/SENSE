@@ -166,6 +166,11 @@ impl TaskManager {
         }
     }
 
+    /// Metrics of the task in progress (the calibration task never finishes on its own).
+    pub fn current_metrics(&self) -> TaskMetrics {
+        self.current_task.get_metrics()
+    }
+
     pub fn current_task_name(&self) -> &'static str {
         self.current_task.name()
     }

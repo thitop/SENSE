@@ -29,7 +29,7 @@ fn hud_frame() -> Frame {
 }
 
 /// A non-interactive overlay that never steals clicks from the game.
-fn passive(ctx: &egui::Context, id: &str, anchor: Align2, offset: egui::Vec2) -> egui::Area {
+fn passive(id: &str, anchor: Align2, offset: egui::Vec2) -> egui::Area {
     egui::Area::new(Id::new(id))
         .anchor(anchor, offset)
         .interactable(false)
@@ -45,7 +45,7 @@ pub fn render(ctx: &egui::Context, state: &mut UiState, model: &UiModel, actions
             if let Some(p) = model.calibration {
                 calibration_panel(ctx, &p);
             }
-            passive(ctx, "pause_hint", Align2::RIGHT_BOTTOM, vec2(-16.0, -16.0)).show(ctx, |ui| {
+            passive("pause_hint", Align2::RIGHT_BOTTOM, vec2(-16.0, -16.0)).show(ctx, |ui| {
                 ui.label(RichText::new("Esc · pause").font(body(12.0)).color(TEXT_MUTED));
             });
         }
@@ -58,7 +58,7 @@ pub fn render(ctx: &egui::Context, state: &mut UiState, model: &UiModel, actions
         } else {
             let alpha = widgets::toast_alpha(age);
             let text = text.clone();
-            passive(ctx, "toast", Align2::CENTER_BOTTOM, vec2(0.0, -28.0)).show(ctx, |ui| {
+            passive("toast", Align2::CENTER_BOTTOM, vec2(0.0, -28.0)).show(ctx, |ui| {
                 ui.set_opacity(alpha);
                 hud_frame().show(ui, |ui| {
                     ui.horizontal(|ui| {
@@ -83,7 +83,7 @@ pub fn render(ctx: &egui::Context, state: &mut UiState, model: &UiModel, actions
 }
 
 fn practice_pill(ctx: &egui::Context, model: &UiModel) {
-    passive(ctx, "practice_pill", Align2::CENTER_TOP, vec2(0.0, 16.0)).show(ctx, |ui| {
+    passive("practice_pill", Align2::CENTER_TOP, vec2(0.0, 16.0)).show(ctx, |ui| {
         hud_frame().show(ui, |ui| {
             ui.horizontal(|ui| {
                 let dot = || RichText::new("·").font(body(13.0)).color(TEXT_FAINT);
@@ -104,7 +104,7 @@ fn practice_pill(ctx: &egui::Context, model: &UiModel) {
 }
 
 fn calibration_panel(ctx: &egui::Context, p: &CalibrationProgress) {
-    passive(ctx, "calibration_panel", Align2::CENTER_TOP, vec2(0.0, 16.0)).show(ctx, |ui| {
+    passive("calibration_panel", Align2::CENTER_TOP, vec2(0.0, 16.0)).show(ctx, |ui| {
         hud_frame().show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = S3;
@@ -154,7 +154,7 @@ fn segments(ui: &mut egui::Ui, p: &CalibrationProgress) {
 }
 
 fn countdown(ctx: &egui::Context, remaining: f32) {
-    passive(ctx, "countdown", Align2::CENTER_CENTER, vec2(0.0, -40.0)).show(ctx, |ui| {
+    passive("countdown", Align2::CENTER_CENTER, vec2(0.0, -40.0)).show(ctx, |ui| {
         ui.vertical_centered(|ui| {
             ui.label(
                 RichText::new(countdown_label(remaining))
