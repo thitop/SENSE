@@ -154,10 +154,27 @@ fn parse_dpi_cases() {
     assert_eq!(parse_dpi(" 800 "), Ok(800.0));
     assert_eq!(parse_dpi(""), Err("Enter a number"));
     assert_eq!(parse_dpi("abc"), Err("Enter a number"));
-    for bad in ["0", "50", "60000", "-800"] {
+    // Spec: error "if outside 50–50 000", so both ends are valid.
+    assert_eq!(parse_dpi("50"), Ok(50.0));
+    assert_eq!(parse_dpi("50000"), Ok(50000.0));
+    for bad in ["0", "49.9", "50000.5", "60000", "-800"] {
         assert_eq!(parse_dpi(bad), Err("DPI must be between 50 and 50000"), "{bad}");
     }
     assert_eq!(parse_dpi("NaN"), Err("Enter a number"));
+}
+
+#[test]
+fn cm_360_must_be_plausible() {
+    use aim_trainer::game::calibration::validate_cm_360;
+    const MSG: &str = "That's outside 5–300 cm/360°. Check the value.";
+    assert_eq!(validate_cm_360(46.65), Ok(46.65));
+    assert_eq!(validate_cm_360(5.0), Ok(5.0));
+    assert_eq!(validate_cm_360(300.0), Ok(300.0));
+    // "35" typed instead of "0.35" in Valorant at 800 DPI is ~1.3 cm/360.
+    assert_eq!(validate_cm_360(1.3), Err(MSG));
+    assert_eq!(validate_cm_360(300.1), Err(MSG));
+    assert_eq!(validate_cm_360(f64::INFINITY), Err(MSG));
+    assert_eq!(validate_cm_360(f64::NAN), Err(MSG));
 }
 
 #[test]

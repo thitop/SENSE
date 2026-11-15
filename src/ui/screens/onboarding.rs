@@ -3,7 +3,7 @@
 use egui::{vec2, Align, CornerRadius, Key, Layout, RichText, Sense, TextEdit};
 use egui_phosphor::regular as icon;
 
-use crate::game::calibration::{parse_dpi, parse_game_sens, primary_game};
+use crate::game::calibration::{parse_dpi, parse_game_sens, primary_game, validate_cm_360};
 use crate::sensitivity::converter::SensitivityConverter;
 use crate::ui::screens::centered;
 use crate::ui::theme::*;
@@ -159,16 +159,21 @@ fn step_sens(ui: &mut egui::Ui, draft: &mut OnboardingDraft, model: &UiModel, ac
     let enter = number_field(ui, &mut draft.sens, "0.35");
     let dpi = parse_dpi(&draft.dpi).unwrap_or(model.profile.dpi);
     let parsed = parse_game_sens(&draft.sens);
-    match (parsed, game) {
-        (Ok(sens), Some(g)) => {
-            let cm = SensitivityConverter::game_sens_to_cm_360(g, dpi, sens);
-            ui.label(
-                RichText::new(format!("= {cm:.1} cm/360° at {dpi:.0} DPI"))
-                    .font(body(13.0))
-                    .color(TEXT_MUTED),
-            );
-        }
-        (Err(e), _) if draft.attempted => {
+    let cm = match (parsed, game) {
+        (Ok(sens), Some(g)) => Some(SensitivityConverter::game_sens_to_cm_360(g, dpi, sens)),
+        _ => None,
+    };
+    let result = parsed.and_then(|_| validate_cm_360(cm.unwrap_or(f64::NAN)));
+    if let Some(cm) = cm.filter(|c| c.is_finite()) {
+        ui.label(
+            RichText::new(format!("= {cm:.1} cm/360° at {dpi:.0} DPI"))
+                .font(body(13.0))
+                .color(TEXT_MUTED),
+        );
+    }
+    match result {
+        // A parsable but implausible value is shown right away: it's almost always a typo.
+        Err(e) if parsed.is_ok() || draft.attempted => {
             widgets::field_error(ui, e);
         }
         _ => {}
@@ -196,8 +201,8 @@ fn step_sens(ui: &mut egui::Ui, draft: &mut OnboardingDraft, model: &UiModel, ac
         actions.push(complete(model.profile.current_cm_360));
     } else if finish {
         draft.attempted = true;
-        if let (Ok(sens), Some(g)) = (parsed, game) {
-            actions.push(complete(SensitivityConverter::game_sens_to_cm_360(g, dpi, sens)));
+        if let Ok(cm) = result {
+            actions.push(complete(cm));
         }
     }
 }

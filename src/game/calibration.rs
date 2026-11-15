@@ -116,10 +116,20 @@ fn parse_finite(s: &str) -> Option<f64> {
 
 pub fn parse_dpi(s: &str) -> Result<f64, &'static str> {
     let v = parse_finite(s).ok_or("Enter a number")?;
-    if v > 50.0 && v < 50000.0 {
+    if (50.0..=50000.0).contains(&v) {
         Ok(v)
     } else {
         Err("DPI must be between 50 and 50000")
+    }
+}
+
+/// Plausible range for a real sensitivity. Catches typos like "35" for "0.35" and keeps
+/// non-finite values out of saved profiles (serde writes them as null, which won't load).
+pub fn validate_cm_360(cm: f64) -> Result<f64, &'static str> {
+    if (5.0..=300.0).contains(&cm) {
+        Ok(cm)
+    } else {
+        Err("That's outside 5–300 cm/360°. Check the value.")
     }
 }
 

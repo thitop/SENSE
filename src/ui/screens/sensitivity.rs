@@ -4,7 +4,7 @@ use egui::{Align, Layout, RichText, TextEdit};
 use egui_phosphor::regular as icon;
 
 use crate::data::CalibrationResult;
-use crate::game::calibration::{delta_text, parse_game_sens, primary_game, ConfidenceLevel};
+use crate::game::calibration::{delta_text, parse_game_sens, primary_game, validate_cm_360, ConfidenceLevel};
 use crate::sensitivity::converter::SensitivityConverter;
 use crate::ui::screens::section;
 use crate::ui::theme::*;
@@ -79,13 +79,14 @@ fn converter(ui: &mut egui::Ui, state: &mut UiState, model: &UiModel) {
         if state.convert_value.trim().is_empty() {
             return;
         }
-        match parse_game_sens(&state.convert_value) {
+        let dpi = model.profile.dpi;
+        let cm = parse_game_sens(&state.convert_value)
+            .and_then(|v| validate_cm_360(SensitivityConverter::game_sens_to_cm_360(from, dpi, v)));
+        match cm {
             Err(e) => {
                 widgets::field_error(ui, e);
             }
-            Ok(v) => {
-                let dpi = model.profile.dpi;
-                let cm = SensitivityConverter::game_sens_to_cm_360(from, dpi, v);
+            Ok(cm) => {
                 ui.add_space(S2);
                 ui.label(
                     RichText::new(format!("= {cm:.1} cm/360° at {dpi:.0} DPI"))
