@@ -15,12 +15,17 @@ pub fn show(ui: &mut egui::Ui, state: &mut UiState, model: &UiModel, actions: &m
     let Some(draft) = state.onboarding.as_mut() else {
         return;
     };
-    egui::ScrollArea::vertical()
+    let cancelled = egui::ScrollArea::vertical()
         .auto_shrink([false, false])
-        .show(ui, |ui| card(ui, draft, model, actions));
+        .show(ui, |ui| card(ui, draft, model, actions))
+        .inner;
+    if cancelled {
+        state.onboarding = None;
+    }
 }
 
-fn card(ui: &mut egui::Ui, draft: &mut OnboardingDraft, model: &UiModel, actions: &mut Vec<UiAction>) {
+/// Returns true when the player cancelled a "Run setup again".
+fn card(ui: &mut egui::Ui, draft: &mut OnboardingDraft, model: &UiModel, actions: &mut Vec<UiAction>) -> bool {
     ui.add_space(((ui.available_height() - 520.0) / 2.0).max(S4));
     centered(ui, 560.0, |ui| {
         ui.horizontal(|ui| {
@@ -38,11 +43,18 @@ fn card(ui: &mut egui::Ui, draft: &mut OnboardingDraft, model: &UiModel, actions
             ui.add_space(S2);
             match draft.step {
                 1 => step_dpi(ui, draft),
-                2 => step_game(ui, draft, model),
-                _ => step_sens(ui, draft, model, actions),
+                2 => {
+                    step_game(ui, draft, model);
+                    false
+                }
+                _ => {
+                    step_sens(ui, draft, model, actions);
+                    false
+                }
             }
-        });
-    });
+        })
+        .inner
+    })
 }
 
 fn title(ui: &mut egui::Ui, text: &str, sub: &str) {
@@ -71,7 +83,8 @@ fn number_field(ui: &mut egui::Ui, value: &mut String, hint: &str) -> bool {
     resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter))
 }
 
-fn step_dpi(ui: &mut egui::Ui, draft: &mut OnboardingDraft) {
+/// Returns true when the player cancelled a "Run setup again".
+fn step_dpi(ui: &mut egui::Ui, draft: &mut OnboardingDraft) -> bool {
     title(
         ui,
         "What's your mouse DPI?",
@@ -93,8 +106,14 @@ fn step_dpi(ui: &mut egui::Ui, draft: &mut OnboardingDraft) {
     }
     ui.add_space(S4);
     let mut next = enter;
-    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-        next |= widgets::primary_button(ui, Some(icon::ARROW_RIGHT), "Continue").clicked();
+    let mut cancel = false;
+    ui.horizontal(|ui| {
+        if draft.cancellable {
+            cancel = widgets::secondary_button(ui, None, "Cancel").clicked();
+        }
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            next |= widgets::primary_button(ui, Some(icon::ARROW_RIGHT), "Continue").clicked();
+        });
     });
     if next {
         draft.attempted = true;
@@ -103,6 +122,7 @@ fn step_dpi(ui: &mut egui::Ui, draft: &mut OnboardingDraft) {
             draft.attempted = false;
         }
     }
+    cancel
 }
 
 fn step_game(ui: &mut egui::Ui, draft: &mut OnboardingDraft, model: &UiModel) {

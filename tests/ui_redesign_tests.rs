@@ -704,6 +704,13 @@ fn run_totals_add_up_segments_across_pauses() {
 }
 
 #[test]
+fn only_rerun_setup_is_cancellable() {
+    assert!(OnboardingDraft::from_profile(&onboarded_profile()).cancellable);
+    let fresh = PlayerProfile::new("p".into(), "P".into(), 800.0, "valorant".into());
+    assert!(!OnboardingDraft::from_profile(&fresh).cancellable);
+}
+
+#[test]
 fn current_metrics_reports_running_task() {
     let mut tm = TaskManager::new();
     tm.set_task(TaskType::Calibration);

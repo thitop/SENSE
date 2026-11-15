@@ -553,6 +553,11 @@ impl GameState {
             return;
         }
         if self.ui_state.menu_open {
+            // Esc cancels "Run setup again" (first-run setup can't be skipped).
+            if self.ui_state.onboarding.as_ref().is_some_and(|d| d.cancellable) {
+                self.ui_state.onboarding = None;
+                return;
+            }
             // Back to a run in progress only; with nothing to play the menu stays open.
             if esc_closes_menu(self.task_manager.state, self.ui_state.onboarding.is_some()) {
                 self.close_menu();

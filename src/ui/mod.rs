@@ -70,6 +70,8 @@ pub struct OnboardingDraft {
     pub sens: String,
     /// Set once the player pressed Continue/Finish, so errors don't show while they're still typing.
     pub attempted: bool,
+    /// "Run setup again" on a profile that's already set up can be cancelled; first-run setup can't.
+    pub cancellable: bool,
 }
 
 impl OnboardingDraft {
@@ -80,6 +82,7 @@ impl OnboardingDraft {
             game_id: p.primary_game_id.clone(),
             sens: String::new(),
             attempted: false,
+            cancellable: p.onboarded,
         }
     }
 }
