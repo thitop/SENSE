@@ -1,158 +1,120 @@
+mod engine;
+
+use engine::{camera::Camera, input::InputManager, renderer::Renderer, timing::Timing};
+use glam::Vec3;
 use std::sync::Arc;
 use winit::{
     application::ApplicationHandler,
     event::*,
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
+    keyboard::{KeyCode, PhysicalKey},
     window::{Window, WindowId},
 };
 
-struct State {
-    window: Arc<Window>,
-    surface: wgpu::Surface<'static>,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    config: wgpu::SurfaceConfiguration,
-    size: winit::dpi::PhysicalSize<u32>,
+struct GameState {
+    renderer: Renderer,
+    camera: Camera,
+    input: InputManager,
+    timing: Timing,
+    // Demo target positions (for testing 3D rendering & aim controls)
+    targets: Vec<(Vec3, f32)>,
+    rad_per_count: f32,
 }
 
-impl State {
+impl GameState {
     async fn new(window: Arc<Window>) -> Self {
         let size = window.inner_size();
+        let renderer = Renderer::new(window.clone()).await;
+        let aspect_ratio = size.width as f32 / size.height.max(1) as f32;
+        let camera = Camera::new(aspect_ratio);
+        let mut input = InputManager::new();
+        input.register_raw_input(&window);
 
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::PRIMARY,
-            ..Default::default()
-        });
+        // Lock mouse immediately into FPS aim mode
+        input.set_cursor_locked(&window, true);
 
-        // Surface lifetime safely handled by Arc<Window>
-        let surface = instance
-            .create_surface(window.clone())
-            .expect("Failed to create surface");
+        let timing = Timing::new(1000.0); // 1000 Hz physics tick
 
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-            })
-            .await
-            .expect("Failed to find an appropriate GPU adapter");
+        // Standard sensitivity: 800 DPI, 0.35 Valorant (approx 0.00038 rad per mouse count)
+        // cm/360° approx 46.6 cm
+        let rad_per_count = 0.07_f32.to_radians() * 0.35;
 
-        log::info!("Using GPU: {:?}", adapter.get_info().name);
-
-        let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("Primary Device"),
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::default(),
-                    memory_hints: Default::default(),
-                },
-                None,
-            )
-            .await
-            .expect("Failed to create device");
-
-        let surface_caps = surface.get_capabilities(&adapter);
-        let surface_format = surface_caps
-            .formats
-            .iter()
-            .find(|f| f.is_srgb())
-            .copied()
-            .unwrap_or(surface_caps.formats[0]);
-
-        let width = size.width.max(1);
-        let height = size.height.max(1);
-
-        let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface_format,
-            width,
-            height,
-            present_mode: wgpu::PresentMode::AutoNoVsync, // Low latency
-            alpha_mode: surface_caps.alpha_modes[0],
-            view_formats: vec![],
-            desired_maximum_frame_latency: 2,
-        };
-        surface.configure(&device, &config);
+        // Place a few test targets (Yellow spheres at chest/head level)
+        let targets = vec![
+            (Vec3::new(0.0, 1.5, -8.0), 0.35),
+            (Vec3::new(-3.0, 1.8, -10.0), 0.4),
+            (Vec3::new(3.5, 1.2, -9.0), 0.3),
+            (Vec3::new(-1.5, 2.2, -7.0), 0.25),
+        ];
 
         Self {
-            window,
-            surface,
-            device,
-            queue,
-            config,
-            size,
+            renderer,
+            camera,
+            input,
+            timing,
+            targets,
+            rad_per_count,
         }
     }
 
-    fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
-        if new_size.width > 0 && new_size.height > 0 {
-            self.size = new_size;
-            self.config.width = new_size.width;
-            self.config.height = new_size.height;
-            self.surface.configure(&self.device, &self.config);
+    fn update(&mut self) {
+        let _dt = self.timing.update();
+
+        // 1. Process Raw Input deltas
+        let (dx, dy) = self.input.consume_mouse_delta();
+        if dx != 0.0 || dy != 0.0 {
+            self.camera.rotate(dx, dy, self.rad_per_count);
         }
+
+        // 2. Fixed Timestep ticks
+        while self.timing.should_do_fixed_update() {
+            // Future physics / continuous tracking calculation
+        }
+
+        // 3. Update Camera Uniform to GPU
+        self.renderer.update_camera(&self.camera);
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        let output = self.surface.get_current_texture()?;
-        let view = output
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        self.renderer.render(&self.targets)
+    }
 
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Clear Screen Encoder"),
-            });
-
-        {
-            // Dark gray/near-black clean aesthetic (0.05, 0.05, 0.06)
-            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Clear Screen Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.05,
-                            g: 0.05,
-                            b: 0.06,
-                            a: 1.0,
-                        }),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
-        }
-
-        self.queue.submit(std::iter::once(encoder.finish()));
-        output.present();
-
-        Ok(())
+    fn toggle_cursor_lock(&mut self) {
+        let new_state = !self.input.is_locked();
+        self.input.set_cursor_locked(&self.renderer.window, new_state);
+        log::info!("Cursor locked: {}", new_state);
     }
 }
 
 #[derive(Default)]
 struct App {
-    state: Option<State>,
+    state: Option<GameState>,
 }
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.is_none() {
             let window_attributes = Window::default_attributes()
-                .with_title("Aim Trainer - Find Your Perfect Sensitivity (Bootstrap)")
+                .with_title("Aim Trainer - High FPS & Low Latency Engine (Core Engine)")
                 .with_inner_size(winit::dpi::LogicalSize::new(1280, 720));
 
             let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
-            let state = pollster::block_on(State::new(window.clone()));
+            let state = pollster::block_on(GameState::new(window));
             self.state = Some(state);
-            window.request_redraw();
+        }
+    }
+
+    fn device_event(
+        &mut self,
+        _event_loop: &ActiveEventLoop,
+        _device_id: DeviceId,
+        event: DeviceEvent,
+    ) {
+        if let Some(state) = self.state.as_mut() {
+            if let DeviceEvent::MouseMotion { delta } = event {
+                // High-precision Raw mouse motion events delivered directly by OS
+                state.input.add_mouse_delta(delta.0 as f32, delta.1 as f32);
+            }
         }
     }
 
@@ -163,25 +125,61 @@ impl ApplicationHandler for App {
         event: WindowEvent,
     ) {
         let state = match self.state.as_mut() {
-            Some(s) if s.window.id() == window_id => s,
+            Some(s) if s.renderer.window.id() == window_id => s,
             _ => return,
         };
 
         match event {
             WindowEvent::CloseRequested => {
+                state.input.set_cursor_locked(&state.renderer.window, false);
                 event_loop.exit();
             }
             WindowEvent::Resized(physical_size) => {
-                state.resize(physical_size);
+                state.renderer.resize(physical_size);
+                state.camera.update_aspect_ratio(physical_size.width, physical_size.height);
+            }
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        physical_key: PhysicalKey::Code(key),
+                        state: ElementState::Pressed,
+                        ..
+                    },
+                ..
+            } => match key {
+                KeyCode::Escape => {
+                    // Escape toggles cursor lock so user can move freely or close window
+                    state.toggle_cursor_lock();
+                }
+                _ => {}
+            },
+            WindowEvent::MouseInput {
+                button: MouseButton::Left,
+                state: btn_state,
+                ..
+            } => {
+                state.input.set_left_mouse(btn_state == ElementState::Pressed);
+                if btn_state == ElementState::Pressed && !state.input.is_locked() {
+                    // Clicking back into window re-locks the cursor
+                    state.toggle_cursor_lock();
+                }
             }
             WindowEvent::RedrawRequested => {
+                state.update();
+
+                // Update FPS in title bar cleanly
+                let fps = state.timing.fps();
+                let title = format!("Aim Trainer - FPS: {} | Low Latency Engine (Press ESC to unlock cursor)", fps);
+                state.renderer.window.set_title(&title);
+
                 match state.render() {
                     Ok(_) => {}
-                    Err(wgpu::SurfaceError::Lost) => state.resize(state.size),
+                    Err(wgpu::SurfaceError::Lost) => state.renderer.resize(state.renderer.size),
                     Err(wgpu::SurfaceError::OutOfMemory) => event_loop.exit(),
                     Err(e) => log::error!("Render error: {:?}", e),
                 }
-                state.window.request_redraw();
+
+                state.renderer.window.request_redraw();
             }
             _ => (),
         }
