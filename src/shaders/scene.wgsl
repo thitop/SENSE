@@ -1,4 +1,4 @@
-// Shaders for Aim Trainer Scene & Targets
+// Shaders for Aim Trainer Scene & Targets (Enhanced with subtle target edge glow)
 
 struct CameraUniform {
     view_proj: mat4x4<f32>,
@@ -32,15 +32,20 @@ fn vs_main(model: VertexInput) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    // Clean, high-readability lighting
     let light_dir = normalize(vec3<f32>(0.2, 0.9, -0.4));
     let normal = normalize(in.world_normal);
 
     let diffuse = max(dot(normal, light_dir), 0.0);
-    let ambient = 0.35;
-    let lighting = ambient + diffuse * 0.65;
+    let ambient = 0.40;
+    let lighting = ambient + diffuse * 0.60;
 
-    let final_rgb = in.color.rgb * lighting;
+    // Subtle edge rim-lighting/glow effect for targets
+    let view_dir = normalize(-in.world_position);
+    let rim = 1.0 - max(dot(view_dir, normal), 0.0);
+    let rim_glow = pow(rim, 2.8) * 0.35;
+
+    let base_rgb = in.color.rgb * lighting;
+    let final_rgb = base_rgb + vec3<f32>(rim_glow, rim_glow * 0.9, 0.0);
+
     return vec4<f32>(final_rgb, in.color.a);
 }
-

@@ -10,17 +10,16 @@ impl PerformanceGraphs {
 
         let plot_points: PlotPoints = samples.iter().map(|&(x, y)| [x, y]).collect();
         let points = Points::new(plot_points)
-            .radius(4.5)
-            .color(egui::Color32::from_rgb(255, 215, 0)); // Gold/Yellow
+            .radius(4.5_f32)
+            .color(egui::Color32::from_rgb(255, 215, 0));
 
         Plot::new("accuracy_vs_sens_plot")
-            .view_aspect(2.2)
+            .view_aspect(2.2_f32)
             .x_axis_label("Sensitivity (cm/360°)")
             .y_axis_label("Score / Performance")
             .show(ui, |plot_ui| {
                 plot_ui.points(points);
 
-                // If optimal cm is determined, draw a vertical guide line
                 if let Some(opt_x) = optimal_cm {
                     let vline = Line::new(vec![[opt_x, 0.0], [opt_x, 100.0]])
                         .color(egui::Color32::from_rgb(0, 255, 128))
@@ -42,10 +41,10 @@ impl PerformanceGraphs {
 
         let line = Line::new(plot_points)
             .color(egui::Color32::from_rgb(80, 200, 255))
-            .width(2.0);
+            .width(2.0_f32);
 
         Plot::new("rt_distribution_plot")
-            .view_aspect(2.2)
+            .view_aspect(2.2_f32)
             .x_axis_label("Shot #")
             .y_axis_label("Reaction Time (ms)")
             .show(ui, |plot_ui| {
@@ -66,10 +65,10 @@ impl PerformanceGraphs {
 
         let line = Line::new(plot_points)
             .color(egui::Color32::from_rgb(255, 100, 100))
-            .width(2.5);
+            .width(2.5_f32);
 
         Plot::new("psa_convergence_plot")
-            .view_aspect(2.2)
+            .view_aspect(2.2_f32)
             .x_axis_label("Round #")
             .y_axis_label("Tested cm/360°")
             .show(ui, |plot_ui| {

@@ -2,6 +2,7 @@ pub mod graphs;
 
 use graphs::PerformanceGraphs;
 use crate::data::DataManager;
+use crate::engine::audio::AudioManager;
 use crate::game::tasks::{TaskManager, TaskState, TaskType};
 use crate::sensitivity::{FinalSensitivityRecommendation, SensitivityEngine};
 
@@ -53,6 +54,7 @@ pub fn render_ui(
     task_manager: &mut TaskManager,
     sensitivity_engine: &mut SensitivityEngine,
     data_manager: &mut DataManager,
+    audio_manager: &mut AudioManager,
     fps: u32,
     current_cm_360: f64,
 ) {
@@ -151,7 +153,7 @@ pub fn render_ui(
                     UiScreen::Results => render_results_screen(ui, sensitivity_engine),
                     UiScreen::Graphs => render_graphs_screen(ui, sensitivity_engine, data_manager),
                     UiScreen::Profiles => render_profiles_screen(ui, ui_state, data_manager, sensitivity_engine),
-                    UiScreen::Settings => render_settings_screen(ui, ui_state, sensitivity_engine, data_manager),
+                    UiScreen::Settings => render_settings_screen(ui, ui_state, sensitivity_engine, data_manager, audio_manager),
                     UiScreen::PlayingHud => {}
                 }
             });
@@ -305,7 +307,6 @@ fn render_graphs_screen(
 ) {
     ui.heading("📊 Performance Visualization");
 
-    // 1. Accuracy vs Sens plot
     let samples: Vec<(f64, f64)> = sensitivity_engine
         .analyzer
         .samples
@@ -317,7 +318,6 @@ fn render_graphs_screen(
 
     ui.separator();
 
-    // 2. PSA Convergence plot
     let psa_rounds: Vec<f64> = sensitivity_engine
         .psa
         .history
@@ -328,7 +328,6 @@ fn render_graphs_screen(
 
     ui.separator();
 
-    // 3. Reaction Time plot from latest session
     if let Some(profile_id) = &data_manager.profile_manager.active_profile_id {
         let history = data_manager.load_history(profile_id);
         if let Some(latest) = history.latest_session() {
@@ -352,7 +351,6 @@ fn render_profiles_screen(
     ui.add_space(8.0);
     ui.separator();
 
-    // Create New Profile
     ui.horizontal(|ui| {
         ui.label("New Profile Name:");
         ui.text_edit_singleline(&mut ui_state.new_profile_name);
@@ -397,8 +395,9 @@ fn render_settings_screen(
     ui_state: &mut UiState,
     sensitivity_engine: &mut SensitivityEngine,
     data_manager: &mut DataManager,
+    audio_manager: &mut AudioManager,
 ) {
-    ui.heading("⚙️ Settings & Hardware Configuration");
+    ui.heading("⚙️ Settings & Audio Configuration");
 
     ui.group(|ui| {
         ui.horizontal(|ui| {
@@ -419,6 +418,13 @@ fn render_settings_screen(
             }
         });
         ui.label(egui::RichText::new("Enter your mouse native DPI (e.g., 400, 800, 1600). Essential for true cm/360° calculation.").size(12.0).color(egui::Color32::GRAY));
+    });
+
+    ui.add_space(16.0);
+    ui.group(|ui| {
+        ui.heading("🔊 Sound Settings");
+        ui.checkbox(&mut audio_manager.is_enabled, "Enable Sound Effects (Hit / Miss / Countdown)");
+        ui.add(egui::Slider::new(&mut audio_manager.volume, 0.0..=1.0).text("Sound Volume"));
     });
 
     ui.add_space(16.0);

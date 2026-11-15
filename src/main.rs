@@ -5,7 +5,9 @@ mod sensitivity;
 mod ui;
 
 use data::{DataManager, MetricPoint, SessionRecord};
-use engine::{camera::Camera, input::InputManager, renderer::Renderer, timing::Timing};
+use engine::{
+    audio::AudioManager, camera::Camera, input::InputManager, renderer::Renderer, timing::Timing,
+};
 use game::{
     hit_detection::Ray,
     tasks::{TaskManager, TaskState, TaskType},
@@ -26,6 +28,7 @@ struct GameState {
     camera: Camera,
     input: InputManager,
     timing: Timing,
+    audio_manager: AudioManager,
     task_manager: TaskManager,
     sensitivity_engine: SensitivityEngine,
     data_manager: DataManager,
@@ -37,6 +40,7 @@ struct GameState {
     player_dpi: f64,
     current_session_points: Vec<MetricPoint>,
     shot_counter: u32,
+    last_countdown_sec: i32,
 }
 
 impl GameState {
@@ -52,6 +56,7 @@ impl GameState {
         input.set_cursor_locked(&window, true);
 
         let timing = Timing::new(1000.0); // 1000 Hz physics tick
+        let audio_manager = AudioManager::new();
 
         let data_manager = DataManager::new();
         let active_profile = data_manager.profile_manager.get_active_profile().cloned();
@@ -84,6 +89,7 @@ impl GameState {
             camera,
             input,
             timing,
+            audio_manager,
             task_manager,
             sensitivity_engine,
             data_manager,
@@ -95,6 +101,7 @@ impl GameState {
             player_dpi,
             current_session_points: Vec::new(),
             shot_counter: 0,
+            last_countdown_sec: 4,
         }
     }
 
@@ -119,6 +126,12 @@ impl GameState {
         if self.input.consume_left_click() && self.input.is_locked() && !self.ui_state.is_overlay_open {
             let hit = self.task_manager.on_click(crosshair_ray);
             self.shot_counter += 1;
+
+            if hit {
+                self.audio_manager.play_hit();
+            } else {
+                self.audio_manager.play_miss();
+            }
 
             if let Some(path) = self.sensitivity_engine.path_recorder.end_shot() {
                 let rt_ms = path.end_time.duration_since(path.start_time).as_millis() as f32;
@@ -155,13 +168,24 @@ impl GameState {
             self.sensitivity_engine.path_recorder.start_shot();
         }
 
+        // Countdown audio beeps
+        if let TaskState::Countdown { remaining_secs } = self.task_manager.state {
+            let current_sec = remaining_secs.ceil() as i32;
+            if current_sec < self.last_countdown_sec && current_sec > 0 {
+                self.audio_manager.play_countdown_beep(false);
+                self.last_countdown_sec = current_sec;
+            }
+        }
+
         let was_running = self.task_manager.state == TaskState::Running;
 
         // 3. Update Task Manager state & targets
         self.task_manager.update(dt, crosshair_ray);
 
-        // Auto-save history when task finishes
+        // Auto-save history when task finishes + fanfare audio
         if was_running && self.task_manager.state == TaskState::Finished {
+            self.audio_manager.play_complete();
+
             if let Some(metrics) = &self.task_manager.last_completed_metrics {
                 let session_record = SessionRecord {
                     session_id: format!("sess_{}", chrono::Utc::now().timestamp_millis()),
@@ -192,7 +216,6 @@ impl GameState {
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let targets = self.task_manager.get_render_targets();
 
-        // 1. Prepare egui frame
         let raw_input = self.egui_state.take_egui_input(&self.renderer.window);
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
             render_ui(
@@ -201,6 +224,7 @@ impl GameState {
                 &mut self.task_manager,
                 &mut self.sensitivity_engine,
                 &mut self.data_manager,
+                &mut self.audio_manager,
                 self.timing.fps(),
                 self.current_cm_360,
             );
@@ -223,7 +247,6 @@ impl GameState {
             pixels_per_point: full_output.pixels_per_point,
         };
 
-        // 2. Render 3D Scene + Crosshair + Egui primitives
         let result = self.renderer.render(&targets, &clipped_primitives, &screen_descriptor);
 
         for id in &full_output.textures_delta.free {
@@ -237,6 +260,13 @@ impl GameState {
         self.ui_state.toggle_overlay();
         let should_lock = !self.ui_state.is_overlay_open;
         self.input.set_cursor_locked(&self.renderer.window, should_lock);
+    }
+
+    fn restart_task(&mut self) {
+        self.last_countdown_sec = 4;
+        let cur = self.task_manager.current_type;
+        self.task_manager.set_task(cur);
+        self.task_manager.start_task_with_countdown();
     }
 }
 
@@ -284,7 +314,6 @@ impl ApplicationHandler for App {
             _ => return,
         };
 
-        // Allow egui to handle window events first (mouse clicks on UI buttons/plots)
         let response = state.egui_state.on_window_event(&state.renderer.window, &event);
         if response.consumed {
             return;
@@ -312,29 +341,32 @@ impl ApplicationHandler for App {
                     state.toggle_menu_overlay();
                 }
                 KeyCode::Digit1 if !state.ui_state.is_overlay_open => {
+                    state.last_countdown_sec = 4;
                     state.task_manager.set_task(TaskType::Flick);
                     state.task_manager.start_task_with_countdown();
                 }
                 KeyCode::Digit2 if !state.ui_state.is_overlay_open => {
+                    state.last_countdown_sec = 4;
                     state.task_manager.set_task(TaskType::Tracking);
                     state.task_manager.start_task_with_countdown();
                 }
                 KeyCode::Digit3 if !state.ui_state.is_overlay_open => {
+                    state.last_countdown_sec = 4;
                     state.task_manager.set_task(TaskType::Switching);
                     state.task_manager.start_task_with_countdown();
                 }
                 KeyCode::Digit4 if !state.ui_state.is_overlay_open => {
+                    state.last_countdown_sec = 4;
                     state.task_manager.set_task(TaskType::MicroAdjust);
                     state.task_manager.start_task_with_countdown();
                 }
                 KeyCode::Digit5 if !state.ui_state.is_overlay_open => {
+                    state.last_countdown_sec = 4;
                     state.task_manager.set_task(TaskType::Speed);
                     state.task_manager.start_task_with_countdown();
                 }
                 KeyCode::KeyR if !state.ui_state.is_overlay_open => {
-                    let cur = state.task_manager.current_type;
-                    state.task_manager.set_task(cur);
-                    state.task_manager.start_task_with_countdown();
+                    state.restart_task();
                 }
                 KeyCode::KeyC if !state.ui_state.is_overlay_open => {
                     state.ui_state.is_overlay_open = true;
