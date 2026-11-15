@@ -218,6 +218,55 @@ fn theme_installs_font_families() {
     assert_eq!(ctx.style().visuals.panel_fill, theme::BG);
 }
 
+// ---------- Task 4: widget kit ----------
+
+use aim_trainer::ui::widgets;
+
+fn headless_frame(size: egui::Vec2, ui_fn: impl FnMut(&egui::Context)) -> egui::Context {
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let input = || egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+        ..Default::default()
+    };
+    // First frame applies fonts; second frame renders with them.
+    let _ = ctx.run(input(), |_| {});
+    let _ = ctx.run(input(), ui_fn);
+    ctx
+}
+
+#[test]
+fn toast_alpha_curve() {
+    assert_eq!(widgets::toast_alpha(0.0), 0.0);
+    assert!((widgets::toast_alpha(0.15) - 1.0).abs() < 1e-4);
+    assert_eq!(widgets::toast_alpha(1.0), 1.0);
+    assert!((widgets::toast_alpha(2.625) - 0.5).abs() < 0.01);
+    assert_eq!(widgets::toast_alpha(3.0), 0.0);
+    assert_eq!(widgets::toast_alpha(-1.0), 0.0);
+}
+
+#[test]
+fn widgets_render_headless() {
+    headless_frame(egui::vec2(1280.0, 720.0), |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let play = egui_phosphor::regular::PLAY;
+            widgets::primary_button(ui, Some(play), "Start calibration");
+            widgets::secondary_button(ui, None, "Warm up first");
+            widgets::ghost_button(ui, None, "Skip");
+            widgets::card(ui, |ui| ui.label("inside"));
+            widgets::highlight_card(ui, |ui| ui.label("highlight"));
+            widgets::stat_card(ui, "Your current", "41.6", Some("cm/360"), "Valorant 0.350");
+            widgets::stat_card(ui, "Last result", "—", None, "Not calibrated yet");
+            widgets::nav_item(ui, egui_phosphor::regular::HOUSE, "Home", true);
+            widgets::nav_item(ui, egui_phosphor::regular::GEAR, "Settings", false);
+            widgets::badge(ui, "High confidence", ConfidenceLevel::High);
+            widgets::badge(ui, "Low confidence", ConfidenceLevel::Low);
+            widgets::eyebrow(ui, "Your sensitivity");
+            widgets::field_error(ui, "Enter a number");
+        });
+    });
+}
+
 #[test]
 fn calibration_task_type_is_endless_flick() {
     let mut tm = TaskManager::new();

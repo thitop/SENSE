@@ -1,5 +1,6 @@
 pub mod graphs;
 pub mod theme;
+pub mod widgets;
 
 use egui::{vec2, Align, Color32, CornerRadius, Frame, Layout, Margin, Rect, RichText, Stroke};
 use graphs::PerformanceGraphs;

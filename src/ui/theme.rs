@@ -115,7 +115,7 @@ fn style() -> egui::Style {
     let v = &mut style.visuals;
     v.panel_fill = BG;
     v.window_fill = SURFACE;
-    v.window_stroke = Stroke::new(1.0, BORDER);
+    v.window_stroke = Stroke::new(1.0_f32, BORDER);
     v.window_shadow = Shadow::NONE;
     v.popup_shadow = Shadow::NONE;
     v.window_corner_radius = CornerRadius::same(R_CARD);
@@ -125,33 +125,33 @@ fn style() -> egui::Style {
     v.override_text_color = None;
     v.hyperlink_color = ACCENT;
     v.selection.bg_fill = ACCENT.gamma_multiply(0.25);
-    v.selection.stroke = Stroke::new(1.0, ACCENT);
+    v.selection.stroke = Stroke::new(1.0_f32, ACCENT);
 
     let w = &mut v.widgets;
     let radius = CornerRadius::same(R_CONTROL);
     w.noninteractive.bg_fill = SURFACE;
     w.noninteractive.weak_bg_fill = SURFACE;
-    w.noninteractive.bg_stroke = Stroke::new(1.0, BORDER);
-    w.noninteractive.fg_stroke = Stroke::new(1.0, TEXT_SECONDARY);
+    w.noninteractive.bg_stroke = Stroke::new(1.0_f32, BORDER);
+    w.noninteractive.fg_stroke = Stroke::new(1.0_f32, TEXT_SECONDARY);
     w.noninteractive.corner_radius = radius;
 
     w.inactive.bg_fill = SURFACE_RAISED;
     w.inactive.weak_bg_fill = SURFACE_RAISED;
-    w.inactive.bg_stroke = Stroke::new(1.0, BORDER_STRONG);
-    w.inactive.fg_stroke = Stroke::new(1.0, TEXT);
+    w.inactive.bg_stroke = Stroke::new(1.0_f32, BORDER_STRONG);
+    w.inactive.fg_stroke = Stroke::new(1.0_f32, TEXT);
     w.inactive.corner_radius = radius;
 
     w.hovered.bg_fill = BORDER_STRONG;
     w.hovered.weak_bg_fill = BORDER_STRONG;
-    w.hovered.bg_stroke = Stroke::new(1.0, TEXT_FAINT);
-    w.hovered.fg_stroke = Stroke::new(1.0, TEXT);
+    w.hovered.bg_stroke = Stroke::new(1.0_f32, TEXT_FAINT);
+    w.hovered.fg_stroke = Stroke::new(1.0_f32, TEXT);
     w.hovered.corner_radius = radius;
     w.hovered.expansion = 0.0;
 
     w.active.bg_fill = BORDER_STRONG;
     w.active.weak_bg_fill = BORDER_STRONG;
-    w.active.bg_stroke = Stroke::new(1.0, ACCENT);
-    w.active.fg_stroke = Stroke::new(1.0, TEXT);
+    w.active.bg_stroke = Stroke::new(1.0_f32, ACCENT);
+    w.active.fg_stroke = Stroke::new(1.0_f32, TEXT);
     w.active.corner_radius = radius;
     w.active.expansion = 0.0;
 
