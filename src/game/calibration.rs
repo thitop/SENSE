@@ -1,5 +1,6 @@
 //! Calibration-session state and the small pure helpers the UI needs around it.
 
+use crate::game::tasks::TaskState;
 use crate::sensitivity::games::GameProfile;
 use crate::sensitivity::psa::{PsaCalibrator, PsaRoundConclusion};
 
@@ -20,6 +21,18 @@ impl PlaySession {
     pub fn records_calibration(&self) -> bool {
         self.mode == PlayMode::Calibration && !self.paused
     }
+}
+
+/// A click counts as a calibration shot only while targets are live — never during the
+/// 3-2-1 countdown, while paused, or in practice.
+pub fn records_calibration_shot(session: PlaySession, task_state: TaskState) -> bool {
+    session.records_calibration() && task_state == TaskState::Running
+}
+
+/// Esc in the menu returns to the game only when a run is in progress and setup isn't open;
+/// otherwise there'd be nothing to play and the cursor would be captured for no reason.
+pub fn esc_closes_menu(task_state: TaskState, onboarding_open: bool) -> bool {
+    !onboarding_open && matches!(task_state, TaskState::Running | TaskState::Countdown { .. })
 }
 
 /// Read-only view of calibration progress for the HUD.

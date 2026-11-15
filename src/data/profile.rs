@@ -25,6 +25,28 @@ fn default_onboarded() -> bool {
     true
 }
 
+/// File-safe id derived from `name`, suffixed (`-2`, `-3`, …) so it never overwrites an existing profile.
+pub fn unique_profile_id(name: &str, existing: &[PlayerProfile]) -> String {
+    let base: String = name
+        .to_lowercase()
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+        .collect();
+    let base = if base.is_empty() {
+        format!("profile_{}", Utc::now().timestamp_millis())
+    } else {
+        base
+    };
+    let taken = |id: &str| existing.iter().any(|p| p.id == id);
+    if !taken(&base) {
+        return base;
+    }
+    (2..)
+        .map(|n| format!("{base}-{n}"))
+        .find(|id| !taken(id))
+        .expect("unbounded suffix search")
+}
+
 impl PlayerProfile {
     pub fn new(id: String, name: String, dpi: f64, primary_game_id: String) -> Self {
         let now = Utc::now();
@@ -142,18 +164,7 @@ impl ProfileManager {
     }
 
     pub fn create_profile(&mut self, name: &str, dpi: f64, game_id: &str) -> PlayerProfile {
-        let clean_id = name
-            .to_lowercase()
-            .chars()
-            .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
-            .collect::<String>();
-
-        let id = if clean_id.is_empty() {
-            format!("profile_{}", Utc::now().timestamp_millis())
-        } else {
-            clean_id
-        };
-
+        let id = unique_profile_id(name, &self.profiles);
         let profile = PlayerProfile::new(id, name.to_string(), dpi, game_id.to_string());
         let _ = self.save_profile(&profile);
         self.profiles.push(profile.clone());

@@ -588,6 +588,51 @@ fn calibration_task_type_is_endless_flick() {
     assert_eq!(tm.current_task_name(), "Calibration");
 }
 
+// ---------- Final review fixes ----------
+
+#[test]
+fn calibration_shots_only_count_while_targets_are_live() {
+    use aim_trainer::game::calibration::records_calibration_shot;
+    let cal = PlaySession {
+        mode: PlayMode::Calibration,
+        paused: false,
+    };
+    assert!(records_calibration_shot(cal, TaskState::Running));
+    assert!(!records_calibration_shot(cal, TaskState::Countdown { remaining_secs: 2.0 }));
+    assert!(!records_calibration_shot(cal, TaskState::NotStarted));
+    let paused = PlaySession { paused: true, ..cal };
+    assert!(!records_calibration_shot(paused, TaskState::Running));
+    let practice = PlaySession {
+        mode: PlayMode::Practice,
+        paused: false,
+    };
+    assert!(!records_calibration_shot(practice, TaskState::Running));
+}
+
+#[test]
+fn esc_only_returns_to_a_run_in_progress() {
+    use aim_trainer::game::calibration::esc_closes_menu;
+    assert!(esc_closes_menu(TaskState::Running, false));
+    assert!(esc_closes_menu(TaskState::Countdown { remaining_secs: 1.0 }, false));
+    assert!(!esc_closes_menu(TaskState::NotStarted, false));
+    assert!(!esc_closes_menu(TaskState::Finished, false));
+    assert!(!esc_closes_menu(TaskState::Running, true));
+}
+
+#[test]
+fn new_profile_ids_never_collide() {
+    use aim_trainer::data::profile::unique_profile_id;
+    let existing = vec![
+        PlayerProfile::new("alice".into(), "Alice".into(), 800.0, "valorant".into()),
+        PlayerProfile::new("alice-2".into(), "Alice".into(), 800.0, "valorant".into()),
+        PlayerProfile::new("default".into(), "Player".into(), 800.0, "valorant".into()),
+    ];
+    assert_eq!(unique_profile_id("Bob", &existing), "bob");
+    assert_eq!(unique_profile_id("Alice", &existing), "alice-3");
+    assert_eq!(unique_profile_id("Default", &existing), "default-2");
+    assert!(unique_profile_id("!!!", &existing).starts_with("profile_"));
+}
+
 #[test]
 fn current_metrics_reports_running_task() {
     let mut tm = TaskManager::new();

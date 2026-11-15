@@ -9,7 +9,10 @@ use engine::{
     audio::AudioManager, camera::Camera, input::InputManager, renderer::Renderer, timing::Timing,
 };
 use game::{
-    calibration::{round_change_message, CalibrationProgress, PlayMode, PlaySession},
+    calibration::{
+        esc_closes_menu, records_calibration_shot, round_change_message, CalibrationProgress,
+        PlayMode, PlaySession,
+    },
     hit_detection::Ray,
     tasks::{TaskManager, TaskState, TaskType},
 };
@@ -365,8 +368,12 @@ impl GameState {
             direction: self.camera.forward(),
         };
 
-        // 2. Shooting
-        if self.input.consume_left_click() && self.input.is_locked() && playing {
+        // 2. Shooting — only once targets are live; clicks during the countdown are ignored.
+        if self.input.consume_left_click()
+            && self.input.is_locked()
+            && playing
+            && self.task_manager.state == TaskState::Running
+        {
             self.on_shot(crosshair_ray);
         }
 
@@ -382,7 +389,13 @@ impl GameState {
         // 3. Targets advance only while actually playing
         if playing {
             let was_running = self.task_manager.state == TaskState::Running;
+            let was_counting = matches!(self.task_manager.state, TaskState::Countdown { .. });
             self.task_manager.update(dt, crosshair_ray);
+
+            // The first shot's timer and path start when targets appear, not when the countdown does.
+            if was_counting && self.task_manager.state == TaskState::Running {
+                self.sensitivity_engine.path_recorder.start_shot();
+            }
 
             if was_running
                 && self.task_manager.state == TaskState::Finished
@@ -423,7 +436,7 @@ impl GameState {
                 peak_velocity_px_s: path.peak_velocity,
             });
 
-            if self.session.records_calibration() {
+            if records_calibration_shot(self.session, self.task_manager.state) {
                 // Attribute the shot to the sensitivity it was taken at, before PSA may move it.
                 let acc = if hit { 100.0 } else { 0.0 };
                 self.sensitivity_engine
@@ -528,8 +541,8 @@ impl GameState {
             return;
         }
         if self.ui_state.menu_open {
-            // Setup has to be finished before playing.
-            if self.ui_state.onboarding.is_none() {
+            // Back to a run in progress only; with nothing to play the menu stays open.
+            if esc_closes_menu(self.task_manager.state, self.ui_state.onboarding.is_some()) {
                 self.close_menu();
             }
         } else if self.task_manager.state == TaskState::Finished {
