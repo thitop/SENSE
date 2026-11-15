@@ -1,3 +1,4 @@
+pub mod calibration;
 pub mod history;
 pub mod metrics;
 pub mod profile;
@@ -5,6 +6,7 @@ pub mod profile;
 use std::fs;
 use std::path::PathBuf;
 
+pub use calibration::{CalibrationResult, CalibrationRound};
 pub use history::{SessionHistory, SessionRecord};
 pub use metrics::{AggregatedTaskMetrics, MetricPoint};
 pub use profile::{PlayerProfile, ProfileManager};

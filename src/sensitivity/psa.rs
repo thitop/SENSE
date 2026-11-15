@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 use super::path_recorder::ShotTrajectoryPattern;
 
 #[derive(Clone, Debug)]
@@ -11,7 +13,7 @@ pub struct PsaRoundResult {
     pub conclusion: PsaRoundConclusion,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum PsaRoundConclusion {
     TooFastNeedSlower, // Overshoot dominant -> decrease sensitivity (higher cm/360)
     TooSlowNeedFaster, // Undershoot dominant -> increase sensitivity (lower cm/360)

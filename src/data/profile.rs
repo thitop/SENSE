@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+use super::calibration::CalibrationResult;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlayerProfile {
     pub id: String,
@@ -12,6 +14,15 @@ pub struct PlayerProfile {
     pub current_cm_360: f64,
     pub created_at: DateTime<Utc>,
     pub last_played_at: DateTime<Utc>,
+    /// Profiles saved before first-run setup existed load as already set up.
+    #[serde(default = "default_onboarded")]
+    pub onboarded: bool,
+    #[serde(default)]
+    pub last_calibration: Option<CalibrationResult>,
+}
+
+fn default_onboarded() -> bool {
+    true
 }
 
 impl PlayerProfile {
@@ -25,6 +36,8 @@ impl PlayerProfile {
             current_cm_360: 40.0, // Default 40 cm/360°
             created_at: now,
             last_played_at: now,
+            onboarded: false,
+            last_calibration: None,
         }
     }
 }
