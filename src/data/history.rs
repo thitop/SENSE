@@ -43,3 +43,4 @@ impl SessionHistory {
         self.sessions.last()
     }
 }
+

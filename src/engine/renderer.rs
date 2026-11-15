@@ -68,6 +68,9 @@ pub struct Renderer {
     // Crosshair 2D pipeline
     pub crosshair_pipeline: wgpu::RenderPipeline,
     pub crosshair_vertex_buffer: wgpu::Buffer,
+
+    // Egui renderer integration
+    pub egui_renderer: egui_wgpu::Renderer,
 }
 
 impl Renderer {
@@ -91,8 +94,6 @@ impl Renderer {
             })
             .await
             .expect("Failed to get GPU adapter");
-
-        log::info!("GPU Adapter: {}", adapter.get_info().name);
 
         let (device, queue) = adapter
             .request_device(
@@ -123,7 +124,7 @@ impl Renderer {
             format: surface_format,
             width,
             height,
-            present_mode: wgpu::PresentMode::AutoNoVsync, // ultra-low latency
+            present_mode: wgpu::PresentMode::AutoNoVsync,
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
@@ -268,8 +269,6 @@ impl Renderer {
             cache: None,
         });
 
-        // Create Room Mesh: Dark modern shooting range aesthetic
-        // Clean deep dark walls, slightly reflective slate floor
         let wall_col = [0.08, 0.08, 0.10, 1.0];
         let floor_col = [0.04, 0.04, 0.05, 1.0];
         let room_mesh = create_room(30.0, 10.0, 30.0, wall_col, floor_col);
@@ -286,10 +285,8 @@ impl Renderer {
         });
         let room_index_count = room_mesh.indices.len() as u32;
 
-        // Base sphere mesh (yellow target)
         let sphere_mesh = create_sphere(1.0, 24, 16, [1.0, 0.85, 0.0, 1.0]);
 
-        // Preallocate dynamic vertex/index buffers for targets
         let dynamic_vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Dynamic Target Vertex Buffer"),
             size: (std::mem::size_of::<Vertex>() * 20000) as u64,
@@ -304,7 +301,6 @@ impl Renderer {
             mapped_at_creation: false,
         });
 
-        // Crosshair vertex buffer (standard green crosshair lines)
         let ch_color = [0.0, 1.0, 0.2, 0.95];
         let crosshair_verts = Self::build_crosshair_verts(width, height, 8.0, 3.0, ch_color);
         let crosshair_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -312,6 +308,9 @@ impl Renderer {
             contents: bytemuck::cast_slice(&crosshair_verts),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
+
+        // Initialize egui_wgpu renderer
+        let egui_renderer = egui_wgpu::Renderer::new(&device, config.format, None, 1, false);
 
         Self {
             window,
@@ -332,6 +331,7 @@ impl Renderer {
             dynamic_index_buffer,
             crosshair_pipeline,
             crosshair_vertex_buffer,
+            egui_renderer,
         }
     }
 
@@ -366,7 +366,6 @@ impl Renderer {
             self.surface.configure(&self.device, &self.config);
             self.depth_view = Self::create_depth_texture(&self.device, &self.config);
 
-            // Update crosshair size for new aspect ratio
             let ch_color = [0.0, 1.0, 0.2, 0.95];
             let ch_verts = Self::build_crosshair_verts(new_size.width, new_size.height, 8.0, 3.0, ch_color);
             self.queue.write_buffer(&self.crosshair_vertex_buffer, 0, bytemuck::cast_slice(&ch_verts));
@@ -384,16 +383,12 @@ impl Renderer {
         let ndc_gap_y = (gap_px / h) * 2.0;
 
         [
-            // Left tick
             CrosshairVertex { position: [-ndc_gap_x - ndc_dx, 0.0], color: col },
             CrosshairVertex { position: [-ndc_gap_x, 0.0], color: col },
-            // Right tick
             CrosshairVertex { position: [ndc_gap_x, 0.0], color: col },
             CrosshairVertex { position: [ndc_gap_x + ndc_dx, 0.0], color: col },
-            // Top tick
             CrosshairVertex { position: [0.0, ndc_gap_y], color: col },
             CrosshairVertex { position: [0.0, ndc_gap_y + ndc_dy], color: col },
-            // Bottom tick
             CrosshairVertex { position: [0.0, -ndc_gap_y - ndc_dy], color: col },
             CrosshairVertex { position: [0.0, -ndc_gap_y], color: col },
         ]
@@ -410,10 +405,12 @@ impl Renderer {
         );
     }
 
-    /// Render 3D aim room, target spheres, and 2D crosshair
+    /// Render 3D Scene + 2D Crosshair + egui UI overlay
     pub fn render(
         &mut self,
-        target_positions: &[(glam::Vec3, f32)], // (center, radius)
+        target_positions: &[(glam::Vec3, f32)],
+        egui_primitives: &[egui::ClippedPrimitive],
+        screen_descriptor: &egui_wgpu::ScreenDescriptor,
     ) -> Result<(), wgpu::SurfaceError> {
         let output = self.surface.get_current_texture()?;
         let view = output
@@ -437,7 +434,7 @@ impl Renderer {
                 target_verts.push(Vertex {
                     position: world_pos.to_array(),
                     normal: v.normal,
-                    color: [1.0, 0.85, 0.05, 1.0], // Crisp Yellow Target
+                    color: [1.0, 0.85, 0.05, 1.0],
                 });
             }
             for idx in &self.sphere_mesh.indices {
@@ -490,12 +487,10 @@ impl Renderer {
             render_pass.set_pipeline(&self.scene_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
 
-            // Draw Room
             render_pass.set_vertex_buffer(0, self.room_vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.room_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..self.room_index_count, 0, 0..1);
 
-            // Draw Targets
             if !target_indices.is_empty() {
                 let v_end = (target_verts.len() * std::mem::size_of::<Vertex>()) as u64;
                 let i_end = (target_indices.len() * std::mem::size_of::<u32>()) as u64;
@@ -528,10 +523,40 @@ impl Renderer {
             crosshair_pass.draw(0..8, 0..1);
         }
 
+        // 4. Egui UI Overlay Pass
+        if !egui_primitives.is_empty() {
+            self.egui_renderer.update_buffers(
+                &self.device,
+                &self.queue,
+                &mut encoder,
+                egui_primitives,
+                screen_descriptor,
+            );
+
+            {
+                let mut egui_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Egui Render Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+
+                self.egui_renderer
+                    .render(&mut egui_pass.forget_lifetime(), egui_primitives, screen_descriptor);
+            }
+        }
+
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
 
         Ok(())
     }
 }
-
