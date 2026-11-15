@@ -1,7 +1,8 @@
 mod engine;
+mod game;
 
 use engine::{camera::Camera, input::InputManager, renderer::Renderer, timing::Timing};
-use glam::Vec3;
+use game::{hit_detection::Ray, TargetManager};
 use std::sync::Arc;
 use winit::{
     application::ApplicationHandler,
@@ -16,9 +17,9 @@ struct GameState {
     camera: Camera,
     input: InputManager,
     timing: Timing,
-    // Demo target positions (for testing 3D rendering & aim controls)
-    targets: Vec<(Vec3, f32)>,
+    target_manager: TargetManager,
     rad_per_count: f32,
+    target_spawn_timer: f32,
 }
 
 impl GameState {
@@ -36,29 +37,27 @@ impl GameState {
         let timing = Timing::new(1000.0); // 1000 Hz physics tick
 
         // Standard sensitivity: 800 DPI, 0.35 Valorant (approx 0.00038 rad per mouse count)
-        // cm/360° approx 46.6 cm
         let rad_per_count = 0.07_f32.to_radians() * 0.35;
 
-        // Place a few test targets (Yellow spheres at chest/head level)
-        let targets = vec![
-            (Vec3::new(0.0, 1.5, -8.0), 0.35),
-            (Vec3::new(-3.0, 1.8, -10.0), 0.4),
-            (Vec3::new(3.5, 1.2, -9.0), 0.3),
-            (Vec3::new(-1.5, 2.2, -7.0), 0.25),
-        ];
+        let mut target_manager = TargetManager::new();
+        // Spawn 3 initial targets
+        for _ in 0..3 {
+            target_manager.spawn_random_target(0.35, None);
+        }
 
         Self {
             renderer,
             camera,
             input,
             timing,
-            targets,
+            target_manager,
             rad_per_count,
+            target_spawn_timer: 0.0,
         }
     }
 
     fn update(&mut self) {
-        let _dt = self.timing.update();
+        let dt = self.timing.update();
 
         // 1. Process Raw Input deltas
         let (dx, dy) = self.input.consume_mouse_delta();
@@ -66,17 +65,35 @@ impl GameState {
             self.camera.rotate(dx, dy, self.rad_per_count);
         }
 
-        // 2. Fixed Timestep ticks
-        while self.timing.should_do_fixed_update() {
-            // Future physics / continuous tracking calculation
+        // 2. Handle Shooting / Hit Detection on Left Click
+        if self.input.consume_left_click() && self.input.is_locked() {
+            let crosshair_ray = Ray {
+                origin: self.camera.position,
+                direction: self.camera.forward(),
+            };
+
+            let hit = self.target_manager.process_click(crosshair_ray);
+            if let Some(h) = hit {
+                log::info!("HIT target #{} at dist {:.2}m!", h.target_id, h.distance);
+            } else {
+                log::info!("MISS!");
+            }
         }
 
-        // 3. Update Camera Uniform to GPU
+        // 3. Update Targets & Spawn new ones to keep 3 active targets
+        self.target_manager.update(dt);
+        self.target_spawn_timer += dt;
+        while self.target_manager.active_target_count() < 3 {
+            self.target_manager.spawn_random_target(0.35, None);
+        }
+
+        // 4. Update Camera Uniform to GPU
         self.renderer.update_camera(&self.camera);
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        self.renderer.render(&self.targets)
+        let targets = self.target_manager.get_render_targets();
+        self.renderer.render(&targets)
     }
 
     fn toggle_cursor_lock(&mut self) {
@@ -95,7 +112,7 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.is_none() {
             let window_attributes = Window::default_attributes()
-                .with_title("Aim Trainer - High FPS & Low Latency Engine (Core Engine)")
+                .with_title("Aim Trainer - Target System Active")
                 .with_inner_size(winit::dpi::LogicalSize::new(1280, 720));
 
             let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
@@ -112,7 +129,6 @@ impl ApplicationHandler for App {
     ) {
         if let Some(state) = self.state.as_mut() {
             if let DeviceEvent::MouseMotion { delta } = event {
-                // High-precision Raw mouse motion events delivered directly by OS
                 state.input.add_mouse_delta(delta.0 as f32, delta.1 as f32);
             }
         }
@@ -148,7 +164,6 @@ impl ApplicationHandler for App {
                 ..
             } => match key {
                 KeyCode::Escape => {
-                    // Escape toggles cursor lock so user can move freely or close window
                     state.toggle_cursor_lock();
                 }
                 _ => {}
@@ -160,16 +175,22 @@ impl ApplicationHandler for App {
             } => {
                 state.input.set_left_mouse(btn_state == ElementState::Pressed);
                 if btn_state == ElementState::Pressed && !state.input.is_locked() {
-                    // Clicking back into window re-locks the cursor
                     state.toggle_cursor_lock();
                 }
             }
             WindowEvent::RedrawRequested => {
                 state.update();
 
-                // Update FPS in title bar cleanly
                 let fps = state.timing.fps();
-                let title = format!("Aim Trainer - FPS: {} | Low Latency Engine (Press ESC to unlock cursor)", fps);
+                let acc = state.target_manager.score_tracker.accuracy_percentage();
+                let score = state.target_manager.score_tracker.total_score;
+                let streak = state.target_manager.score_tracker.streak;
+                let avg_ms = state.target_manager.score_tracker.average_reaction_time().as_millis();
+
+                let title = format!(
+                    "Aim Trainer | FPS: {} | Score: {} | Acc: {:.1}% | Streak: {} | Avg RT: {}ms (ESC to unlock)",
+                    fps, score, acc, streak, avg_ms
+                );
                 state.renderer.window.set_title(&title);
 
                 match state.render() {
