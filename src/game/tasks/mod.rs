@@ -166,6 +166,16 @@ impl TaskManager {
         }
     }
 
+    /// Drop a run that is counting down or running, keeping the same task type ready to start.
+    /// Returns whether there was a run to drop.
+    pub fn abandon(&mut self) -> bool {
+        let in_progress = matches!(self.state, TaskState::Countdown { .. } | TaskState::Running);
+        if in_progress {
+            self.set_task(self.current_type);
+        }
+        in_progress
+    }
+
     /// Metrics of the task in progress (the calibration task never finishes on its own).
     pub fn current_metrics(&self) -> TaskMetrics {
         self.current_task.get_metrics()

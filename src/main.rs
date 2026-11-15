@@ -203,7 +203,17 @@ impl GameState {
     }
 
     /// Re-read everything that depends on the active profile.
+    /// A practice run paused in the menu can't continue under different settings: its shots
+    /// would be saved to the wrong profile or DPI. (Calibration never has the menu open.)
+    fn end_paused_practice(&mut self) {
+        if self.session.mode == PlayMode::Practice && self.task_manager.abandon() {
+            self.current_session_points.clear();
+            self.shot_counter = 0;
+        }
+    }
+
     fn after_profile_switch(&mut self) {
+        self.end_paused_practice();
         if let Some(p) = self.data_manager.profile_manager.get_active_profile().cloned() {
             self.set_dpi(p.dpi);
             self.set_cm_360(p.current_cm_360);
@@ -317,6 +327,7 @@ impl GameState {
                 }
             }
             UiAction::SaveDpi(dpi) => {
+                self.end_paused_practice();
                 self.update_profile(|p| p.dpi = dpi);
                 self.set_dpi(dpi);
             }

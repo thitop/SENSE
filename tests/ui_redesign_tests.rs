@@ -711,6 +711,17 @@ fn only_rerun_setup_is_cancellable() {
 }
 
 #[test]
+fn abandon_ends_a_run_in_progress() {
+    let mut tm = TaskManager::new();
+    tm.set_task(TaskType::Tracking);
+    tm.start_task_with_countdown();
+    assert!(tm.abandon(), "a counting-down run is in progress");
+    assert_eq!(tm.state, TaskState::NotStarted);
+    assert_eq!(tm.current_type, TaskType::Tracking);
+    assert!(!tm.abandon(), "nothing left to abandon");
+}
+
+#[test]
 fn current_metrics_reports_running_task() {
     let mut tm = TaskManager::new();
     tm.set_task(TaskType::Calibration);
