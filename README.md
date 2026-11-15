@@ -34,19 +34,37 @@ A high-performance, ultra-low latency Aim Trainer built in **Rust** designed to 
 
 ---
 
+## 🧭 How It Works
+
+### First run
+A three-step setup asks for your mouse DPI, the game you play most, and your current in-game
+sensitivity (converted to cm/360°). Profiles saved by earlier versions skip it; **Settings → Run setup again**
+brings it back.
+
+### Calibration
+**Home → Start calibration** runs about 70 flick shots over up to 7 rounds. Each round tests one
+sensitivity and moves the range based on whether you overshoot or undershoot. The HUD shows the round,
+the sensitivity being tested, and the current range, and a toast appears whenever the sensitivity changes.
+When it finishes, **My sensitivity** shows the result, your main game's value with a copy button, the other
+games, and graphs of how the search converged. **Use this sensitivity** makes it your practice sensitivity.
+
+Sensitivity only changes during calibration. Practice scenarios always run at your saved sensitivity.
+
+---
+
 ## 🎮 Controls & Hotkeys
 
 | Key | Action |
 |---|---|
 | **Left Click** | Shoot / Select UI elements |
-| **ESC** | Toggle Full Menu Overlay / Unlock Mouse Cursor |
-| **1** | Quick launch **Flick Shot** |
-| **2** | Quick launch **Smooth Tracking** |
-| **3** | Quick launch **Target Switching** |
-| **4** | Quick launch **Micro-Adjustment** |
-| **5** | Quick launch **Speed vs Precision** |
-| **R** | Restart current scenario (with 3-second countdown) |
-| **C** | Open Sensitivity Recommendation & Game Conversions table |
+| **ESC** | Open or close the menu. During calibration: pause or resume |
+| **1** | Practice **Flick** (practice only) |
+| **2** | Practice **Tracking** (practice only) |
+| **3** | Practice **Target switching** (practice only) |
+| **4** | Practice **Micro-adjust** (practice only) |
+| **5** | Practice **Speed** (practice only) |
+| **R** | Retry the current practice scenario |
+| **C** | Open **My sensitivity** (practice only) |
 
 ---
 
@@ -65,6 +83,15 @@ cargo run
 ```bash
 cargo test
 ```
+
+### Preview the UI without playing
+```bash
+cargo run --example ui_preview
+```
+Renders every screen and HUD state to PNG files in `target/ui-preview/`.
+
+### Fonts
+Chakra Petch and Inter are embedded from `assets/fonts/` under the SIL Open Font License (see `OFL.txt` and `OFL-Inter.txt`).
 
 ### Build Optimized Release Binary
 ```bash

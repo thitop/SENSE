@@ -157,6 +157,16 @@ fn style() -> egui::Style {
 
     w.open = w.active;
 
+    // Built-in widgets (checkbox, combo box, slider values) pick up our fonts through these.
+    use egui::TextStyle;
+    style.text_styles = [
+        (TextStyle::Small, body(12.0)),
+        (TextStyle::Body, body(14.0)),
+        (TextStyle::Button, medium(14.0)),
+        (TextStyle::Heading, display_bold(22.0)),
+        (TextStyle::Monospace, FontId::monospace(13.0)),
+    ]
+    .into();
     style.spacing.item_spacing = egui::vec2(S2, S2);
     style.spacing.button_padding = egui::vec2(S4, S2);
     style.spacing.interact_size.y = CONTROL_HEIGHT;

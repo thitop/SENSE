@@ -20,9 +20,10 @@ fn button(ui: &mut Ui, icon: Option<&str>, label: &str, kind: Kind) -> Response 
         Some(i) => format!("{i}  {label}"),
         None => label.to_string(),
     };
+    // PLACEHOLDER lets `painter.galley` apply the per-kind, hover-animated text colour below.
     let galley = ui
         .painter()
-        .layout_no_wrap(text, medium(14.0), TEXT);
+        .layout_no_wrap(text, medium(14.0), egui::Color32::PLACEHOLDER);
     let pad_x = if matches!(kind, Kind::Ghost) { S2 } else { S4 };
     let size = vec2(galley.size().x + pad_x * 2.0, CONTROL_HEIGHT.max(galley.size().y + S2 * 2.0));
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
@@ -102,6 +103,13 @@ pub fn card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> InnerResponse<R> 
     card_frame(BORDER).show(ui, add)
 }
 
+/// Low card for one line of content, e.g. a game and its value.
+pub fn row_card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> InnerResponse<R> {
+    card_frame(BORDER)
+        .inner_margin(Margin::symmetric(S3 as i8, S1 as i8))
+        .show(ui, add)
+}
+
 /// Card with an accent border, for the player's own game.
 pub fn highlight_card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> InnerResponse<R> {
     card_frame(ACCENT_BORDER).show(ui, add)
@@ -109,7 +117,17 @@ pub fn highlight_card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> InnerRe
 
 /// A card that is itself the click target, with a hover border; `selected` gives it the accent border.
 pub fn clickable_card(ui: &mut Ui, selected: bool, add: impl FnOnce(&mut Ui)) -> Response {
-    let mut prepared = card_frame(BORDER).begin(ui);
+    clickable(ui, selected, card_frame(BORDER), add)
+}
+
+/// One-line clickable row (history entries, pickers) with compact padding.
+pub fn clickable_row(ui: &mut Ui, selected: bool, add: impl FnOnce(&mut Ui)) -> Response {
+    let frame = card_frame(BORDER).inner_margin(Margin::symmetric(S3 as i8, S1 as i8));
+    clickable(ui, selected, frame, add)
+}
+
+fn clickable(ui: &mut Ui, selected: bool, frame: Frame, add: impl FnOnce(&mut Ui)) -> Response {
+    let mut prepared = frame.begin(ui);
     add(&mut prepared.content_ui);
     let resp = prepared.allocate_space(ui).interact(Sense::click());
     let t = ui.ctx().animate_bool_with_time(resp.id, resp.hovered(), 0.12);

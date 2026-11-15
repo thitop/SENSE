@@ -1,4 +1,4 @@
-use egui::{Align, CornerRadius, Frame, Layout, Margin, RichText, Stroke};
+use egui::{Align, CornerRadius, Layout, RichText, Stroke};
 use egui_phosphor::regular as icon;
 
 use crate::game::tasks::TaskType;
@@ -98,13 +98,19 @@ pub fn show(ui: &mut egui::Ui, _state: &mut UiState, model: &UiModel, actions: &
     }
 }
 
-/// A small bordered key hint, e.g. "1".
+/// A small bordered key hint, e.g. "1". Painted at its own size so rows can't stretch it.
 pub fn keycap(ui: &mut egui::Ui, key: &str) {
-    Frame::NONE
-        .stroke(Stroke::new(1.0_f32, BORDER_STRONG))
-        .corner_radius(CornerRadius::same(4))
-        .inner_margin(Margin::symmetric(6, 1))
-        .show(ui, |ui| {
-            ui.label(RichText::new(key).font(medium(11.0)).color(TEXT_MUTED));
-        });
+    let galley = ui
+        .painter()
+        .layout_no_wrap(key.to_string(), medium(11.0), TEXT_MUTED);
+    let size = egui::vec2((galley.size().x + 12.0).max(20.0), 20.0);
+    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    ui.painter().rect_stroke(
+        rect,
+        CornerRadius::same(4),
+        Stroke::new(1.0_f32, BORDER_STRONG),
+        egui::StrokeKind::Inside,
+    );
+    ui.painter()
+        .galley(rect.center() - galley.size() / 2.0, galley, TEXT_MUTED);
 }

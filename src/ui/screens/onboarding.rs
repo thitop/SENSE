@@ -15,8 +15,14 @@ pub fn show(ui: &mut egui::Ui, state: &mut UiState, model: &UiModel, actions: &m
     let Some(draft) = state.onboarding.as_mut() else {
         return;
     };
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| card(ui, draft, model, actions));
+}
+
+fn card(ui: &mut egui::Ui, draft: &mut OnboardingDraft, model: &UiModel, actions: &mut Vec<UiAction>) {
     ui.add_space(((ui.available_height() - 520.0) / 2.0).max(S4));
-    centered(ui, 480.0, |ui| {
+    centered(ui, 560.0, |ui| {
         ui.horizontal(|ui| {
             ui.label(RichText::new(icon::CROSSHAIR).font(body(20.0)).color(ACCENT));
             ui.label(RichText::new("SENSE").font(display_bold(17.0)).color(TEXT));
@@ -69,7 +75,7 @@ fn step_dpi(ui: &mut egui::Ui, draft: &mut OnboardingDraft) {
     title(
         ui,
         "What's your mouse DPI?",
-        "Check your mouse software if you're not sure. Most mice ship at 800.",
+        "Find it in your mouse software. Most mice ship at 800.",
     );
     let enter = number_field(ui, &mut draft.dpi, "800");
     ui.horizontal(|ui| {
@@ -108,22 +114,26 @@ fn step_game(ui: &mut egui::Ui, draft: &mut OnboardingDraft, model: &UiModel) {
     if primary_game(model.games, &draft.game_id).map(|g| g.id != draft.game_id).unwrap_or(false) {
         draft.game_id = model.games[0].id.clone();
     }
-    for g in model.games {
-        let selected = g.id == draft.game_id;
-        let resp = widgets::clickable_card(ui, selected, |ui| {
-            ui.set_min_width(ui.available_width());
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(&g.name).font(medium(14.0)).color(TEXT));
-                if selected {
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.label(RichText::new(icon::CHECK).font(body(16.0)).color(ACCENT));
+    for pair in model.games.chunks(2) {
+        ui.columns(2, |cols| {
+            for (col, g) in cols.iter_mut().zip(pair) {
+                let selected = g.id == draft.game_id;
+                let resp = widgets::clickable_row(col, selected, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Label::new(RichText::new(&g.name).font(medium(13.0)).color(TEXT)).truncate());
+                        if selected {
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                ui.label(RichText::new(icon::CHECK).font(body(16.0)).color(ACCENT));
+                            });
+                        }
                     });
+                });
+                if resp.clicked() {
+                    draft.game_id = g.id.clone();
                 }
-            });
+            }
         });
-        if resp.clicked() {
-            draft.game_id = g.id.clone();
-        }
     }
     ui.add_space(S4);
     ui.horizontal(|ui| {
@@ -144,7 +154,7 @@ fn step_sens(ui: &mut egui::Ui, draft: &mut OnboardingDraft, model: &UiModel, ac
     title(
         ui,
         &format!("What's your sensitivity in {game_name}?"),
-        "Use the in-game value. We convert it to cm/360° so every game shares one unit.",
+        "Use the in-game value. We convert it to cm/360° for every game.",
     );
     let enter = number_field(ui, &mut draft.sens, "0.35");
     let dpi = parse_dpi(&draft.dpi).unwrap_or(model.profile.dpi);

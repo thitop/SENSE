@@ -68,7 +68,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut UiState, model: &UiModel, _actions: &
     });
     ui.add_space(S1);
     for (i, s) in shown.iter().enumerate() {
-        let resp = widgets::clickable_card(ui, sel == Some(i), |ui| {
+        let resp = widgets::clickable_row(ui, sel == Some(i), |ui| {
             ui.set_min_width(ui.available_width());
             cells(
                 ui,

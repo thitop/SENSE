@@ -25,7 +25,7 @@ pub fn show(ui: &mut egui::Ui, _state: &mut UiState, model: &UiModel, actions: &
     ui.scope(|ui| {
         ui.set_max_width(620.0);
         ui.label(
-            RichText::new("Find the sensitivity your hand already prefers")
+            RichText::new("Find the sensitivity\nyour hand already prefers")
                 .font(display_bold(34.0))
                 .color(TEXT),
         );

@@ -75,10 +75,23 @@ pub fn show(ui: &mut egui::Ui, state: &mut UiState, model: &UiModel, actions: &m
 
     card(ui, &mut |ui| {
         section(ui, "Audio");
+        // The global 36 px interact height is for buttons; it makes slider thumbs huge.
+        ui.spacing_mut().interact_size.y = 24.0;
+        ui.spacing_mut().slider_width = 240.0;
         let mut enabled = model.audio_enabled;
         let mut volume = model.volume;
         let a = ui.checkbox(&mut enabled, "Hit, miss, and countdown sounds");
-        let b = ui.add_enabled(enabled, egui::Slider::new(&mut volume, 0.0..=1.0).text("Volume"));
+        let b = ui
+            .horizontal(|ui| {
+                let r = ui.add_enabled(enabled, egui::Slider::new(&mut volume, 0.0..=1.0).show_value(false));
+                ui.label(
+                    RichText::new(format!("Volume {:.0}%", volume * 100.0))
+                        .font(body(13.0))
+                        .color(TEXT_SECONDARY),
+                );
+                r
+            })
+            .inner;
         if a.changed() || b.changed() {
             actions.push(UiAction::SetAudio { enabled, volume });
         }

@@ -183,7 +183,7 @@ fn result(
                 .collect();
             let shown = if state.show_all_games { others.len() } else { ROWS_COLLAPSED.min(others.len()) };
             for g in &others[..shown] {
-                widgets::card(ui, |ui| {
+                widgets::row_card(ui, |ui| {
                     ui.set_min_width(ui.available_width());
                     value_row(ui, &g.name, sens_in(g));
                 });

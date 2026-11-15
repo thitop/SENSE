@@ -1,0 +1,325 @@
+//! Render every screen and HUD state offscreen to PNG files, for checking the UI without
+//! clicking through the game.
+//!
+//!     cargo run --example ui_preview -- [output_dir]     (default: target/ui-preview)
+
+use std::fs;
+use std::path::Path;
+
+use aim_trainer::data::{
+    AggregatedTaskMetrics, CalibrationResult, CalibrationRound, MetricPoint, PlayerProfile,
+    SessionHistory, SessionRecord,
+};
+use aim_trainer::game::calibration::{CalibrationProgress, PlayMode, PlaySession};
+use aim_trainer::game::tasks::{TaskMetrics, TaskState};
+use aim_trainer::sensitivity::games::GameDatabase;
+use aim_trainer::sensitivity::path_recorder::ShotTrajectoryPattern;
+use aim_trainer::sensitivity::psa::{PsaCalibrator, PsaRoundConclusion};
+use aim_trainer::ui::{render_ui, theme, OnboardingDraft, Screen, UiModel, UiState};
+use chrono::{Duration, Utc};
+
+const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb; // matches the game's sRGB surface
+
+struct Scene {
+    name: &'static str,
+    size: (u32, u32),
+    state: UiState,
+    profile: PlayerProfile,
+    history: SessionHistory,
+    session: PlaySession,
+    task_state: TaskState,
+    calibration: Option<CalibrationProgress>,
+    metrics: Option<TaskMetrics>,
+    task_name: &'static str,
+}
+
+fn profile(calibrated: bool) -> PlayerProfile {
+    let mut p = PlayerProfile::new("default".into(), "Player".into(), 800.0, "valorant".into());
+    p.onboarded = true;
+    p.current_cm_360 = 41.6;
+    if calibrated {
+        p.last_calibration = Some(CalibrationResult {
+            cm_360: 34.2,
+            confidence: 0.82,
+            psa_cm: Some(34.8),
+            stat_cm: Some(33.3),
+            rounds: [47.5, 31.25, 39.4, 35.3, 33.3, 34.3, 34.8]
+                .iter()
+                .enumerate()
+                .map(|(i, &cm)| CalibrationRound {
+                    tested_cm_360: cm,
+                    conclusion: if i % 2 == 0 {
+                        PsaRoundConclusion::TooFastNeedSlower
+                    } else {
+                        PsaRoundConclusion::TooSlowNeedFaster
+                    },
+                })
+                .collect(),
+            samples: (0..70)
+                .map(|i| {
+                    let x = 30.0 + (i as f64 * 7.3) % 20.0;
+                    (x, 80.0 - (x - 34.0).powi(2) * 0.4 + (i % 5) as f64 * 2.0)
+                })
+                .collect(),
+            at: Utc::now() - Duration::hours(3),
+        });
+    }
+    p
+}
+
+fn history() -> SessionHistory {
+    let mut h = SessionHistory::new("default".into());
+    let now = Utc::now();
+    for (i, (task, cm)) in [("Flick Shot", 41.6), ("Calibration", 34.2), ("Smooth Tracking", 41.6), ("Micro-Adjustment", 34.2)]
+        .iter()
+        .enumerate()
+    {
+        let points = (0..30)
+            .map(|n| MetricPoint {
+                shot_number: n + 1,
+                hit: n % 6 != 0,
+                reaction_time_ms: 380.0 + ((n * 37) % 120) as f32,
+                offset_from_center_m: 0.1,
+                target_radius_m: 0.35,
+                precision_percent: 85.0,
+                mouse_distance_px: 400.0,
+                peak_velocity_px_s: 2000.0,
+            })
+            .collect();
+        h.add_session(SessionRecord {
+            session_id: format!("s{i}"),
+            task_type: task.to_string(),
+            timestamp: now - Duration::hours(5 * i as i64),
+            duration_secs: 40.0,
+            tested_cm_360: *cm,
+            tested_dpi: 800.0,
+            metrics: AggregatedTaskMetrics::compute(points, 12_000 - i as u64 * 900, 0),
+        });
+    }
+    h
+}
+
+fn base(name: &'static str, size: (u32, u32), screen: Screen, calibrated: bool) -> Scene {
+    let mut state = UiState::new();
+    state.screen = screen;
+    Scene {
+        name,
+        size,
+        state,
+        profile: profile(calibrated),
+        history: history(),
+        session: PlaySession { mode: PlayMode::Practice, paused: false },
+        task_state: TaskState::NotStarted,
+        calibration: None,
+        metrics: None,
+        task_name: "Flick Shot",
+    }
+}
+
+fn scenes() -> Vec<Scene> {
+    const L: (u32, u32) = (1280, 720);
+    const S: (u32, u32) = (1024, 640);
+    let mut v = vec![
+        base("home", L, Screen::Home, false),
+        base("home-calibrated", L, Screen::Home, true),
+        base("practice", L, Screen::Practice, true),
+        base("practice-small", S, Screen::Practice, true),
+        base("sensitivity-result", L, Screen::Sensitivity, true),
+        base("sensitivity-result-small", S, Screen::Sensitivity, true),
+        base("history", L, Screen::History, true),
+        base("settings", L, Screen::Settings, true),
+    ];
+
+    let mut empty = base("sensitivity-empty", L, Screen::Sensitivity, false);
+    empty.state.convert_value = "0.35".into();
+    v.push(empty);
+
+    for (step, name) in [(1, "setup-1"), (2, "setup-2"), (3, "setup-3")] {
+        let mut s = base(name, L, Screen::Home, false);
+        s.profile.onboarded = false;
+        let mut d = OnboardingDraft::from_profile(&s.profile);
+        d.step = step;
+        d.sens = "0.35".into();
+        s.state.onboarding = Some(d);
+        v.push(s);
+    }
+
+    let mut psa = PsaCalibrator::new(15.0, 80.0, 7);
+    for i in 0..24 {
+        psa.record_shot(if i < 10 { ShotTrajectoryPattern::Overshoot } else { ShotTrajectoryPattern::Undershoot });
+    }
+    let progress = CalibrationProgress::from_psa(&psa);
+
+    let mut cal = base("hud-calibration", L, Screen::Home, false);
+    cal.state.menu_open = false;
+    cal.session = PlaySession { mode: PlayMode::Calibration, paused: false };
+    cal.task_state = TaskState::Running;
+    cal.calibration = Some(progress);
+    cal.task_name = "Calibration";
+    cal.state.show_toast("Sensitivity changed: faster", 0.5);
+    v.push(cal);
+
+    let mut paused = base("hud-paused", L, Screen::Home, false);
+    paused.state.menu_open = false;
+    paused.session = PlaySession { mode: PlayMode::Calibration, paused: true };
+    paused.task_state = TaskState::Running;
+    paused.calibration = Some(progress);
+    paused.task_name = "Calibration";
+    v.push(paused);
+
+    let mut countdown = base("hud-countdown", L, Screen::Home, false);
+    countdown.state.menu_open = false;
+    countdown.task_state = TaskState::Countdown { remaining_secs: 2.3 };
+    v.push(countdown);
+
+    let mut finished = base("hud-finished", L, Screen::Home, false);
+    finished.state.menu_open = false;
+    finished.task_state = TaskState::Finished;
+    finished.metrics = Some(TaskMetrics {
+        task_name: "Flick Shot".into(),
+        score: 12_400,
+        accuracy: 86.7,
+        avg_reaction_time_ms: 412.0,
+        shots_fired: 30,
+        hits: 26,
+        misses: 4,
+        duration_secs: 41.0,
+        custom_metric_label: "",
+        custom_metric_value: String::new(),
+    });
+    v.push(finished);
+    v
+}
+
+struct Gpu {
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+}
+
+async fn gpu() -> Gpu {
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+    let adapter = instance
+        .request_adapter(&wgpu::RequestAdapterOptions::default())
+        .await
+        .expect("no GPU adapter");
+    let (device, queue) = adapter
+        .request_device(&wgpu::DeviceDescriptor::default(), None)
+        .await
+        .expect("no GPU device");
+    Gpu { device, queue }
+}
+
+fn render(gpu: &Gpu, mut scene: Scene, out_dir: &Path) {
+    let (w, h) = scene.size;
+    let db = GameDatabase::new();
+    let profiles = vec![scene.profile.clone()];
+    let model = UiModel {
+        profile: &scene.profile,
+        profiles: &profiles,
+        games: db.list(),
+        history: &scene.history,
+        session: scene.session,
+        task_state: scene.task_state,
+        task_name: scene.task_name,
+        last_metrics: scene.metrics.as_ref(),
+        calibration: scene.calibration,
+        current_cm_360: scene.profile.current_cm_360,
+        audio_enabled: true,
+        volume: 0.6,
+        fps: 240,
+    };
+
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let mut renderer = egui_wgpu::Renderer::new(&gpu.device, FORMAT, None, 1, false);
+    let input = |t: f64| egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(w as f32, h as f32))),
+        time: Some(t),
+        ..Default::default()
+    };
+
+    // A few frames: fonts load on the first, layouts settle and fade-ins finish on the next.
+    let mut output = None;
+    for i in 0..4 {
+        let o = ctx.run(input(0.5 + i as f64 * 0.4), |ctx| {
+            render_ui(ctx, &mut scene.state, &model);
+        });
+        for (id, delta) in &o.textures_delta.set {
+            renderer.update_texture(&gpu.device, &gpu.queue, *id, delta);
+        }
+        output = Some(o);
+    }
+    let output = output.unwrap();
+    let prims = ctx.tessellate(output.shapes, output.pixels_per_point);
+    let screen = egui_wgpu::ScreenDescriptor { size_in_pixels: [w, h], pixels_per_point: 1.0 };
+
+    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("preview"),
+        size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let view = texture.create_view(&Default::default());
+    let mut encoder = gpu.device.create_command_encoder(&Default::default());
+    let extra = renderer.update_buffers(&gpu.device, &gpu.queue, &mut encoder, &prims, &screen);
+    {
+        // Stand-in for the 3D scene behind HUD overlays (#15171B, as linear).
+        let bg = wgpu::Color { r: 0.0075, g: 0.0085, b: 0.0116, a: 1.0 };
+        let mut pass = encoder
+            .begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("preview"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(bg), store: wgpu::StoreOp::Store },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            })
+            .forget_lifetime();
+        renderer.render(&mut pass, &prims, &screen);
+    }
+    let row = w * 4; // 1280*4 and 1024*4 are both multiples of 256
+    let buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("readback"),
+        size: (row * h) as u64,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    encoder.copy_texture_to_buffer(
+        texture.as_image_copy(),
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buffer,
+            layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(row), rows_per_image: Some(h) },
+        },
+        wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+    );
+    gpu.queue.submit(extra.into_iter().chain([encoder.finish()]));
+    let slice = buffer.slice(..);
+    slice.map_async(wgpu::MapMode::Read, |r| r.expect("map failed"));
+    gpu.device.poll(wgpu::Maintain::Wait);
+    let data = slice.get_mapped_range().to_vec();
+
+    let path = out_dir.join(format!("{}.png", scene.name));
+    let file = fs::File::create(&path).expect("create png");
+    let mut enc = png::Encoder::new(std::io::BufWriter::new(file), w, h);
+    enc.set_color(png::ColorType::Rgba);
+    enc.set_depth(png::BitDepth::Eight);
+    enc.write_header().unwrap().write_image_data(&data).unwrap();
+    println!("{}", path.display());
+}
+
+fn main() {
+    let out = std::env::args().nth(1).unwrap_or_else(|| "target/ui-preview".into());
+    let out = Path::new(&out);
+    fs::create_dir_all(out).expect("create output dir");
+    let gpu = pollster::block_on(gpu());
+    for scene in scenes() {
+        render(&gpu, scene, out);
+    }
+}
