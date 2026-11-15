@@ -47,3 +47,4 @@ impl SensitivityConverter {
         Self::cm_360_to_game_sens(to_game, dpi, cm_360)
     }
 }
+

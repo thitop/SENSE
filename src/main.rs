@@ -1,7 +1,9 @@
+mod data;
 mod engine;
 mod game;
 mod sensitivity;
 
+use data::{DataManager, MetricPoint, SessionRecord};
 use engine::{camera::Camera, input::InputManager, renderer::Renderer, timing::Timing};
 use game::{
     hit_detection::Ray,
@@ -24,9 +26,12 @@ struct GameState {
     timing: Timing,
     task_manager: TaskManager,
     sensitivity_engine: SensitivityEngine,
+    data_manager: DataManager,
     current_cm_360: f64,
     rad_per_count: f32,
     player_dpi: f64,
+    current_session_points: Vec<MetricPoint>,
+    shot_counter: u32,
 }
 
 impl GameState {
@@ -43,9 +48,15 @@ impl GameState {
 
         let timing = Timing::new(1000.0); // 1000 Hz physics tick
 
-        let player_dpi = 800.0;
+        let data_manager = DataManager::new();
+        let active_profile = data_manager.profile_manager.get_active_profile().cloned();
+        let player_dpi = active_profile.as_ref().map(|p| p.dpi).unwrap_or(800.0);
+        let current_cm_360 = active_profile
+            .as_ref()
+            .map(|p| p.current_cm_360)
+            .unwrap_or(40.0);
+
         let sensitivity_engine = SensitivityEngine::new(player_dpi);
-        let current_cm_360 = sensitivity_engine.psa.current_test_cm_360;
         let rad_per_count = SensitivityConverter::cm_360_to_rad_per_count(player_dpi, current_cm_360);
 
         let mut task_manager = TaskManager::new();
@@ -59,9 +70,12 @@ impl GameState {
             timing,
             task_manager,
             sensitivity_engine,
+            data_manager,
             current_cm_360,
             rad_per_count,
             player_dpi,
+            current_session_points: Vec::new(),
+            shot_counter: 0,
         }
     }
 
@@ -83,19 +97,26 @@ impl GameState {
         // 2. Handle Shooting / Hit Detection on Left Click
         if self.input.consume_left_click() && self.input.is_locked() {
             let hit = self.task_manager.on_click(crosshair_ray);
+            self.shot_counter += 1;
 
-            // Finish shot trajectory analysis
             if let Some(path) = self.sensitivity_engine.path_recorder.end_shot() {
-                log::info!("Shot trajectory classified as: {:?}", path.pattern);
+                let rt_ms = path.end_time.duration_since(path.start_time).as_millis() as f32;
 
-                // Feed into PSA Calibrator
+                // Collect per-shot MetricPoint for history tracking
+                self.current_session_points.push(MetricPoint {
+                    shot_number: self.shot_counter,
+                    hit,
+                    reaction_time_ms: rt_ms,
+                    offset_from_center_m: 0.1, // Approximate
+                    target_radius_m: 0.35,
+                    precision_percent: if hit { 85.0 } else { 0.0 },
+                    mouse_distance_px: path.total_mouse_distance,
+                    peak_velocity_px_s: path.peak_velocity,
+                });
+
+                // Update PSA Calibrator
                 let round_done = self.sensitivity_engine.psa.record_shot(path.pattern);
                 if round_done {
-                    log::info!(
-                        "PSA Round #{} complete! Next test cm/360: {:.1} cm",
-                        self.sensitivity_engine.psa.round_number,
-                        self.sensitivity_engine.psa.current_test_cm_360
-                    );
                     self.current_cm_360 = self.sensitivity_engine.psa.current_test_cm_360;
                     self.rad_per_count = SensitivityConverter::cm_360_to_rad_per_count(
                         self.player_dpi,
@@ -103,23 +124,48 @@ impl GameState {
                     );
                 }
 
-                // Feed into Statistical Analyzer
+                // Update Statistical Analyzer
                 let acc = if hit { 100.0 } else { 0.0 };
-                let rt_ms = path.end_time.duration_since(path.start_time).as_millis() as f64;
                 self.sensitivity_engine.analyzer.record_sample(
                     self.current_cm_360,
                     acc,
-                    rt_ms,
+                    rt_ms as f64,
                     &path,
                 );
             }
 
-            // Immediately prime recorder for the next shot
             self.sensitivity_engine.path_recorder.start_shot();
         }
 
+        let was_running = self.task_manager.state == TaskState::Running;
+
         // 3. Update Task Manager state & targets
         self.task_manager.update(dt, crosshair_ray);
+
+        // Auto-save history when task finishes
+        if was_running && self.task_manager.state == TaskState::Finished {
+            if let Some(metrics) = &self.task_manager.last_completed_metrics {
+                let session_record = SessionRecord {
+                    session_id: format!("sess_{}", chrono::Utc::now().timestamp_millis()),
+                    task_type: metrics.task_name.clone(),
+                    timestamp: chrono::Utc::now(),
+                    duration_secs: metrics.duration_secs,
+                    tested_cm_360: self.current_cm_360,
+                    tested_dpi: self.player_dpi,
+                    metrics: data::AggregatedTaskMetrics::compute(
+                        std::mem::take(&mut self.current_session_points),
+                        metrics.score,
+                        0,
+                    ),
+                };
+
+                if let Err(e) = self.data_manager.record_session(session_record) {
+                    log::error!("Failed to auto-save session: {:?}", e);
+                } else {
+                    log::info!("Auto-saved task session history successfully!");
+                }
+            }
+        }
 
         // 4. Update Camera Uniform to GPU
         self.renderer.update_camera(&self.camera);
@@ -146,7 +192,7 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.is_none() {
             let window_attributes = Window::default_attributes()
-                .with_title("Aim Trainer - Sensitivity Engine Running")
+                .with_title("Aim Trainer - Data & Profiles Active")
                 .with_inner_size(winit::dpi::LogicalSize::new(1280, 720));
 
             let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
@@ -225,11 +271,17 @@ impl ApplicationHandler for App {
                     state.task_manager.set_task(cur);
                     state.task_manager.start_task_with_countdown();
                 }
-                // Key C: Compute final sensitivity recommendation and log to console
                 KeyCode::KeyC => {
                     let rec = state.sensitivity_engine.compute_final_recommendation();
+                    let profile_name = state
+                        .data_manager
+                        .profile_manager
+                        .get_active_profile()
+                        .map(|p| p.name.as_str())
+                        .unwrap_or("Default");
+
                     println!("\n=======================================================");
-                    println!("🎯 SENSITIVITY CALIBRATION RESULTS 🎯");
+                    println!("🎯 SENSITIVITY CALIBRATION RESULTS [Profile: {}] 🎯", profile_name);
                     println!("Optimal cm/360° : {:.2} cm", rec.optimal_cm_360);
                     println!("Confidence      : {:.0}%", rec.confidence_score * 100.0);
                     println!("Game Conversions (at {:.0} DPI):", state.player_dpi);
@@ -255,24 +307,25 @@ impl ApplicationHandler for App {
 
                 let fps = state.timing.fps();
                 let task_name = state.task_manager.current_task_name();
-                let cm = state.current_cm_360;
-                let round = state.sensitivity_engine.psa.round_number;
+                let profile_name = state
+                    .data_manager
+                    .profile_manager
+                    .get_active_profile()
+                    .map(|p| p.name.as_str())
+                    .unwrap_or("Default");
 
                 let title = match state.task_manager.state {
                     TaskState::Countdown { remaining_secs } => {
-                        format!("Aim Trainer | Task: {} | Starting in {:.1}s... [Current: {:.1} cm/360]", task_name, remaining_secs, cm)
+                        format!("Aim Trainer | [{}] Task: {} | Starting in {:.1}s...", profile_name, task_name, remaining_secs)
                     }
                     TaskState::Running => {
-                        format!(
-                            "Aim Trainer | FPS: {} | Task: {} | PSA Round: #{} ({:.1} cm/360) | Press C for Rec",
-                            fps, task_name, round, cm
-                        )
+                        format!("Aim Trainer | FPS: {} | [{}] Task: {} (RUNNING) | C for Rec", fps, profile_name, task_name)
                     }
                     TaskState::Finished => {
-                        format!("Aim Trainer | Task Finished | Press C for Sensitivity Recommendation | Press R to Retry")
+                        format!("Aim Trainer | [{}] Task Finished & Saved! | C for Rec | R to Retry", profile_name)
                     }
                     TaskState::NotStarted => {
-                        format!("Aim Trainer | Ready [Keys 1-5 to switch, C to view recommendation]")
+                        format!("Aim Trainer | [{}] Ready", profile_name)
                     }
                 };
 
