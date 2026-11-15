@@ -70,6 +70,26 @@ pub fn ghost_button(ui: &mut Ui, icon: Option<&str>, label: &str) -> Response {
     button(ui, icon, label, Kind::Ghost)
 }
 
+/// Outlined red button for destructive confirmations.
+pub fn danger_button(ui: &mut Ui, label: &str) -> Response {
+    let galley = ui.painter().layout_no_wrap(label.to_string(), medium(13.0), DANGER);
+    let size = vec2(galley.size().x + S3 * 2.0, CONTROL_HEIGHT - 4.0);
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    resp.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), label));
+    if ui.is_rect_visible(rect) {
+        let t = ui.ctx().animate_bool_with_time(resp.id, resp.hovered(), 0.12);
+        ui.painter().rect(
+            rect,
+            CornerRadius::same(R_CONTROL),
+            DANGER.gamma_multiply(0.15 * t),
+            Stroke::new(1.0_f32, DANGER.gamma_multiply(0.6 + 0.4 * t)),
+            StrokeKind::Inside,
+        );
+        ui.painter().galley(rect.center() - galley.size() / 2.0, galley, DANGER);
+    }
+    resp.on_hover_cursor(CursorIcon::PointingHand)
+}
+
 fn card_frame(border: egui::Color32) -> Frame {
     Frame::NONE
         .fill(SURFACE)

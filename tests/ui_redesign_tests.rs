@@ -445,6 +445,141 @@ fn onboarding_renders_each_step() {
     }
 }
 
+// ---------- Task 7: history, settings, HUD ----------
+
+use aim_trainer::game::tasks::TaskMetrics;
+
+fn render_model(state: &mut UiState, model: &UiModel, size: egui::Vec2) -> Vec<aim_trainer::ui::UiAction> {
+    let mut actions = Vec::new();
+    headless_frame(size, |ctx| {
+        actions = render_ui(ctx, state, model);
+    });
+    actions
+}
+
+#[test]
+fn history_renders_empty_and_with_sessions() {
+    let mut fx = Fixture::new(onboarded_profile());
+    for size in SIZES {
+        let mut state = UiState::new();
+        state.screen = Screen::History;
+        assert!(render_with(&mut state, &fx, size).is_empty());
+    }
+    let now = Utc::now();
+    for (i, task) in ["Flick Shot", "Calibration", "Smooth Tracking"].iter().enumerate() {
+        fx.history
+            .add_session(session_at(now - Duration::hours(i as i64), task));
+    }
+    for selected in [None, Some(0), Some(99)] {
+        let mut state = UiState::new();
+        state.screen = Screen::History;
+        state.selected_session = selected;
+        assert!(render_with(&mut state, &fx, SIZES[1]).is_empty());
+    }
+}
+
+#[test]
+fn settings_renders_with_pending_delete_and_errors() {
+    let mut fx = Fixture::new(onboarded_profile());
+    let mut other = onboarded_profile();
+    other.id = "second".into();
+    other.name = "Second".into();
+    fx.profiles.push(other);
+    for size in SIZES {
+        let mut state = UiState::new();
+        state.screen = Screen::Settings;
+        state.pending_delete = Some("second".into());
+        state.dpi_input = Some("abc".into());
+        state.dpi_error = Some("Enter a number");
+        assert!(render_with(&mut state, &fx, size).is_empty());
+    }
+}
+
+#[test]
+fn hud_renders_each_state() {
+    let fx = Fixture::new(onboarded_profile());
+    let mut psa = PsaCalibrator::new(15.0, 80.0, 7);
+    for _ in 0..13 {
+        psa.record_shot(ShotTrajectoryPattern::Overshoot);
+    }
+    let metrics = TaskMetrics {
+        task_name: "Flick Shot".into(),
+        score: 12_400,
+        accuracy: 86.7,
+        avg_reaction_time_ms: 412.0,
+        shots_fired: 30,
+        hits: 26,
+        misses: 4,
+        duration_secs: 41.0,
+        custom_metric_label: "",
+        custom_metric_value: String::new(),
+    };
+
+    let cases: Vec<(PlayMode, bool, TaskState, bool)> = vec![
+        (PlayMode::Practice, false, TaskState::Running, false),
+        (PlayMode::Practice, false, TaskState::Countdown { remaining_secs: 2.4 }, false),
+        (PlayMode::Practice, false, TaskState::Countdown { remaining_secs: 0.0 }, false),
+        (PlayMode::Practice, false, TaskState::Finished, false),
+        (PlayMode::Calibration, false, TaskState::Running, true),
+        (PlayMode::Calibration, true, TaskState::Running, false),
+    ];
+    for (mode, paused, task_state, with_toast) in cases {
+        let mut model = fx.model();
+        model.session = PlaySession { mode, paused };
+        model.task_state = task_state;
+        model.last_metrics = Some(&metrics);
+        if mode == PlayMode::Calibration {
+            model.calibration = Some(CalibrationProgress::from_psa(&psa));
+            model.task_name = "Calibration";
+        }
+        let mut state = UiState::new();
+        state.menu_open = false;
+        if with_toast {
+            state.show_toast("Sensitivity changed: slower", 0.0);
+        }
+        for size in SIZES {
+            assert!(render_model(&mut state, &model, size).is_empty(), "{mode:?} {task_state:?}");
+        }
+    }
+}
+
+#[test]
+fn history_rows_are_newest_first_and_selection_clamps() {
+    use aim_trainer::ui::screens::history::{rows, selected_index};
+    let now = Utc::now();
+    let mut h = SessionHistory::new("p".into());
+    h.add_session(session_at(now - Duration::hours(2), "Old"));
+    h.add_session(session_at(now, "New"));
+    h.add_session(session_at(now - Duration::hours(1), "Mid"));
+    let r = rows(&h);
+    let names: Vec<_> = r.iter().map(|s| s.task_type.as_str()).collect();
+    assert_eq!(names, ["New", "Mid", "Old"]);
+    assert_eq!(selected_index(3, None), Some(0));
+    assert_eq!(selected_index(3, Some(2)), Some(2));
+    assert_eq!(selected_index(3, Some(99)), Some(0));
+    assert_eq!(selected_index(0, Some(1)), None);
+}
+
+#[test]
+fn countdown_label_counts_down_to_go() {
+    use aim_trainer::ui::hud::countdown_label;
+    assert_eq!(countdown_label(2.4), "3");
+    assert_eq!(countdown_label(1.0), "1");
+    assert_eq!(countdown_label(0.5), "1");
+    assert_eq!(countdown_label(0.0), "Go");
+    assert_eq!(countdown_label(-0.2), "Go");
+}
+
+#[test]
+fn hud_clears_expired_toast() {
+    let fx = Fixture::new(onboarded_profile());
+    let mut state = UiState::new();
+    state.menu_open = false;
+    state.show_toast("old news", -10.0);
+    render_with(&mut state, &fx, SIZES[0]);
+    assert!(state.toast.is_none());
+}
+
 #[test]
 fn calibration_task_type_is_endless_flick() {
     let mut tm = TaskManager::new();
