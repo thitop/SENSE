@@ -14,7 +14,9 @@ use game::{
 };
 use sensitivity::{SensitivityConverter, SensitivityEngine};
 use std::sync::Arc;
-use ui::{render_ui, UiState};
+use data::{PlayerProfile, SessionHistory};
+use game::calibration::{CalibrationProgress, PlayMode, PlaySession};
+use ui::{render_ui, theme, Screen, UiModel, UiState};
 use winit::{
     application::ApplicationHandler,
     event::*,
@@ -33,6 +35,9 @@ struct GameState {
     sensitivity_engine: SensitivityEngine,
     data_manager: DataManager,
     ui_state: UiState,
+    session: PlaySession,
+    /// Cached session history of the active profile; refreshed whenever a session is recorded.
+    history: SessionHistory,
     egui_ctx: egui::Context,
     egui_state: egui_winit::State,
     current_cm_360: f64,
@@ -73,8 +78,16 @@ impl GameState {
         task_manager.set_task(TaskType::Flick);
         task_manager.start_task_with_countdown();
 
-        let ui_state = UiState::new(player_dpi);
+        let ui_state = UiState::new();
+        let history = data_manager.load_history(
+            data_manager
+                .profile_manager
+                .active_profile_id
+                .as_deref()
+                .unwrap_or("default"),
+        );
         let egui_ctx = egui::Context::default();
+        theme::install(&egui_ctx);
         let egui_state = egui_winit::State::new(
             egui_ctx.clone(),
             egui::ViewportId::ROOT,
@@ -94,6 +107,11 @@ impl GameState {
             sensitivity_engine,
             data_manager,
             ui_state,
+            session: PlaySession {
+                mode: PlayMode::Practice,
+                paused: false,
+            },
+            history,
             egui_ctx,
             egui_state,
             current_cm_360,
@@ -123,7 +141,7 @@ impl GameState {
         };
 
         // 2. Handle Shooting / Hit Detection on Left Click (when overlay is not open)
-        if self.input.consume_left_click() && self.input.is_locked() && !self.ui_state.is_overlay_open {
+        if self.input.consume_left_click() && self.input.is_locked() && !self.ui_state.menu_open {
             let hit = self.task_manager.on_click(crosshair_ray);
             self.shot_counter += 1;
 
@@ -202,6 +220,7 @@ impl GameState {
                 };
 
                 let _ = self.data_manager.record_session(session_record);
+                self.reload_history();
             }
         }
 
@@ -217,18 +236,37 @@ impl GameState {
         let targets = self.task_manager.get_render_targets();
 
         let raw_input = self.egui_state.take_egui_input(&self.renderer.window);
+        let profile = self
+            .data_manager
+            .profile_manager
+            .get_active_profile()
+            .cloned()
+            .unwrap_or_else(|| {
+                PlayerProfile::new("default".into(), "Player".into(), self.player_dpi, "valorant".into())
+            });
+        let model = UiModel {
+            profile: &profile,
+            profiles: &self.data_manager.profile_manager.profiles,
+            games: self.sensitivity_engine.db.list(),
+            history: &self.history,
+            session: self.session,
+            task_state: self.task_manager.state,
+            task_name: self.task_manager.current_task_name(),
+            last_metrics: self.task_manager.last_completed_metrics.as_ref(),
+            calibration: (self.session.mode == PlayMode::Calibration)
+                .then(|| CalibrationProgress::from_psa(&self.sensitivity_engine.psa)),
+            current_cm_360: self.current_cm_360,
+            audio_enabled: self.audio_manager.is_enabled,
+            volume: self.audio_manager.volume,
+            fps: self.timing.fps(),
+        };
+        let ui_state = &mut self.ui_state;
+        let mut actions = Vec::new();
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
-            render_ui(
-                ctx,
-                &mut self.ui_state,
-                &mut self.task_manager,
-                &mut self.sensitivity_engine,
-                &mut self.data_manager,
-                &mut self.audio_manager,
-                self.timing.fps(),
-                self.current_cm_360,
-            );
+            actions = render_ui(ctx, ui_state, &model);
         });
+        // Actions are applied in Task 8; until then they're dropped.
+        drop(actions);
 
         self.egui_state.handle_platform_output(&self.renderer.window, full_output.platform_output);
 
@@ -256,9 +294,19 @@ impl GameState {
         result
     }
 
+    fn reload_history(&mut self) {
+        let id = self
+            .data_manager
+            .profile_manager
+            .active_profile_id
+            .clone()
+            .unwrap_or_else(|| "default".into());
+        self.history = self.data_manager.load_history(&id);
+    }
+
     fn toggle_menu_overlay(&mut self) {
-        self.ui_state.toggle_overlay();
-        let should_lock = !self.ui_state.is_overlay_open;
+        self.ui_state.menu_open = !self.ui_state.menu_open;
+        let should_lock = !self.ui_state.menu_open;
         self.input.set_cursor_locked(&self.renderer.window, should_lock);
     }
 
@@ -340,37 +388,37 @@ impl ApplicationHandler for App {
                 KeyCode::Escape => {
                     state.toggle_menu_overlay();
                 }
-                KeyCode::Digit1 if !state.ui_state.is_overlay_open => {
+                KeyCode::Digit1 if !state.ui_state.menu_open => {
                     state.last_countdown_sec = 4;
                     state.task_manager.set_task(TaskType::Flick);
                     state.task_manager.start_task_with_countdown();
                 }
-                KeyCode::Digit2 if !state.ui_state.is_overlay_open => {
+                KeyCode::Digit2 if !state.ui_state.menu_open => {
                     state.last_countdown_sec = 4;
                     state.task_manager.set_task(TaskType::Tracking);
                     state.task_manager.start_task_with_countdown();
                 }
-                KeyCode::Digit3 if !state.ui_state.is_overlay_open => {
+                KeyCode::Digit3 if !state.ui_state.menu_open => {
                     state.last_countdown_sec = 4;
                     state.task_manager.set_task(TaskType::Switching);
                     state.task_manager.start_task_with_countdown();
                 }
-                KeyCode::Digit4 if !state.ui_state.is_overlay_open => {
+                KeyCode::Digit4 if !state.ui_state.menu_open => {
                     state.last_countdown_sec = 4;
                     state.task_manager.set_task(TaskType::MicroAdjust);
                     state.task_manager.start_task_with_countdown();
                 }
-                KeyCode::Digit5 if !state.ui_state.is_overlay_open => {
+                KeyCode::Digit5 if !state.ui_state.menu_open => {
                     state.last_countdown_sec = 4;
                     state.task_manager.set_task(TaskType::Speed);
                     state.task_manager.start_task_with_countdown();
                 }
-                KeyCode::KeyR if !state.ui_state.is_overlay_open => {
+                KeyCode::KeyR if !state.ui_state.menu_open => {
                     state.restart_task();
                 }
-                KeyCode::KeyC if !state.ui_state.is_overlay_open => {
-                    state.ui_state.is_overlay_open = true;
-                    state.ui_state.current_screen = ui::UiScreen::Calibration;
+                KeyCode::KeyC if !state.ui_state.menu_open => {
+                    state.ui_state.menu_open = true;
+                    state.ui_state.screen = Screen::Sensitivity;
                     state.input.set_cursor_locked(&state.renderer.window, false);
                 }
                 _ => {}
@@ -381,7 +429,7 @@ impl ApplicationHandler for App {
                 ..
             } => {
                 state.input.set_left_mouse(btn_state == ElementState::Pressed);
-                if btn_state == ElementState::Pressed && !state.input.is_locked() && !state.ui_state.is_overlay_open {
+                if btn_state == ElementState::Pressed && !state.input.is_locked() && !state.ui_state.menu_open {
                     state.input.set_cursor_locked(&state.renderer.window, true);
                 }
             }

@@ -267,6 +267,102 @@ fn widgets_render_headless() {
     });
 }
 
+// ---------- Task 5: app shell ----------
+
+use aim_trainer::data::SessionHistory;
+use aim_trainer::game::tasks::TaskState;
+use aim_trainer::sensitivity::games::GameDatabase;
+use aim_trainer::ui::{render_ui, Screen, UiModel, UiState};
+
+const SIZES: [egui::Vec2; 2] = [egui::vec2(1280.0, 720.0), egui::vec2(1024.0, 640.0)];
+
+fn onboarded_profile() -> PlayerProfile {
+    let mut p = PlayerProfile::new("default".into(), "Player".into(), 800.0, "valorant".into());
+    p.onboarded = true;
+    p.current_cm_360 = 41.6;
+    p
+}
+
+struct Fixture {
+    profile: PlayerProfile,
+    profiles: Vec<PlayerProfile>,
+    db: GameDatabase,
+    history: SessionHistory,
+}
+
+impl Fixture {
+    fn new(profile: PlayerProfile) -> Self {
+        Self {
+            profiles: vec![profile.clone()],
+            profile,
+            db: GameDatabase::new(),
+            history: SessionHistory::new("default".into()),
+        }
+    }
+
+    fn model(&self) -> UiModel<'_> {
+        UiModel {
+            profile: &self.profile,
+            profiles: &self.profiles,
+            games: self.db.list(),
+            history: &self.history,
+            session: PlaySession {
+                mode: PlayMode::Practice,
+                paused: false,
+            },
+            task_state: TaskState::NotStarted,
+            task_name: "Flick Shot",
+            last_metrics: None,
+            calibration: None,
+            current_cm_360: self.profile.current_cm_360,
+            audio_enabled: true,
+            volume: 0.5,
+            fps: 240,
+        }
+    }
+}
+
+/// Render the UI headlessly for two frames and return the actions from the last one.
+fn render_with(state: &mut UiState, fx: &Fixture, size: egui::Vec2) -> Vec<aim_trainer::ui::UiAction> {
+    let mut actions = Vec::new();
+    let model = fx.model();
+    headless_frame(size, |ctx| {
+        actions = render_ui(ctx, state, &model);
+    });
+    actions
+}
+
+#[test]
+fn shell_renders_each_screen_headless() {
+    let fx = Fixture::new(onboarded_profile());
+    for screen in [
+        Screen::Home,
+        Screen::Practice,
+        Screen::Sensitivity,
+        Screen::History,
+        Screen::Settings,
+    ] {
+        for size in SIZES {
+            let mut state = UiState::new();
+            state.screen = screen;
+            let actions = render_with(&mut state, &fx, size);
+            assert!(actions.is_empty(), "{screen:?} at {size:?} emitted {actions:?}");
+            assert!(state.onboarding.is_none());
+        }
+    }
+}
+
+#[test]
+fn onboarding_draft_created_for_new_profile() {
+    let fx = Fixture::new(PlayerProfile::new("p".into(), "P".into(), 1600.0, "cs2".into()));
+    let mut state = UiState::new();
+    render_with(&mut state, &fx, SIZES[0]);
+    let draft = state.onboarding.as_ref().expect("setup draft for a new profile");
+    assert_eq!(draft.step, 1);
+    assert_eq!(draft.dpi, "1600");
+    assert_eq!(draft.game_id, "cs2");
+}
+
 #[test]
 fn calibration_task_type_is_endless_flick() {
     let mut tm = TaskManager::new();
