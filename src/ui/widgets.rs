@@ -87,6 +87,22 @@ pub fn highlight_card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> InnerRe
     card_frame(ACCENT_BORDER).show(ui, add)
 }
 
+/// A card that is itself the click target, with a hover border; `selected` gives it the accent border.
+pub fn clickable_card(ui: &mut Ui, selected: bool, add: impl FnOnce(&mut Ui)) -> Response {
+    let mut prepared = card_frame(BORDER).begin(ui);
+    add(&mut prepared.content_ui);
+    let resp = prepared.allocate_space(ui).interact(Sense::click());
+    let t = ui.ctx().animate_bool_with_time(resp.id, resp.hovered(), 0.12);
+    prepared.frame.fill = SURFACE.lerp_to_gamma(SURFACE_RAISED, t * 0.6);
+    prepared.frame.stroke.color = if selected {
+        ACCENT_BORDER.lerp_to_gamma(ACCENT, 0.35)
+    } else {
+        BORDER.lerp_to_gamma(TEXT_FAINT, t)
+    };
+    prepared.paint(ui);
+    resp.on_hover_cursor(CursorIcon::PointingHand)
+}
+
 pub fn stat_card(ui: &mut Ui, label: &str, value: &str, unit: Option<&str>, caption: &str) -> Response {
     card(ui, |ui| {
         ui.set_min_width(ui.available_width());

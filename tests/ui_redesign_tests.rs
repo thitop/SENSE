@@ -363,6 +363,88 @@ fn onboarding_draft_created_for_new_profile() {
     assert_eq!(draft.game_id, "cs2");
 }
 
+// ---------- Task 6: onboarding, home, practice, sensitivity ----------
+
+use aim_trainer::data::{AggregatedTaskMetrics, SessionRecord};
+use aim_trainer::ui::screens::home::sessions_this_week;
+use aim_trainer::ui::OnboardingDraft;
+use chrono::Duration;
+
+fn session_at(at: chrono::DateTime<Utc>, task: &str) -> SessionRecord {
+    SessionRecord {
+        session_id: format!("s{}", at.timestamp_millis()),
+        task_type: task.into(),
+        timestamp: at,
+        duration_secs: 30.0,
+        tested_cm_360: 40.0,
+        tested_dpi: 800.0,
+        metrics: AggregatedTaskMetrics::default(),
+    }
+}
+
+fn sample_calibration() -> CalibrationResult {
+    CalibrationResult {
+        cm_360: 34.2,
+        confidence: 0.8,
+        psa_cm: Some(35.0),
+        stat_cm: Some(33.0),
+        rounds: vec![
+            CalibrationRound {
+                tested_cm_360: 47.5,
+                conclusion: PsaRoundConclusion::TooFastNeedSlower,
+            },
+            CalibrationRound {
+                tested_cm_360: 31.25,
+                conclusion: PsaRoundConclusion::BalancedNarrow,
+            },
+        ],
+        samples: (0..12).map(|i| (30.0 + i as f64, 50.0 + i as f64)).collect(),
+        at: Utc::now(),
+    }
+}
+
+#[test]
+fn sessions_this_week_counts_last_7_days() {
+    let now = Utc::now();
+    let mut h = SessionHistory::new("p".into());
+    h.add_session(session_at(now - Duration::days(1), "Flick Shot"));
+    h.add_session(session_at(now - Duration::days(6) - Duration::hours(23), "Flick Shot"));
+    h.add_session(session_at(now - Duration::days(8), "Flick Shot"));
+    assert_eq!(sessions_this_week(&h, now), 2);
+}
+
+#[test]
+fn sensitivity_screen_renders_with_and_without_result() {
+    for cal in [None, Some(sample_calibration())] {
+        let mut p = onboarded_profile();
+        p.last_calibration = cal;
+        let fx = Fixture::new(p);
+        for size in SIZES {
+            let mut state = UiState::new();
+            state.screen = Screen::Sensitivity;
+            state.show_all_games = true;
+            assert!(render_with(&mut state, &fx, size).is_empty());
+        }
+    }
+}
+
+#[test]
+fn onboarding_renders_each_step() {
+    let fx = Fixture::new(PlayerProfile::new("p".into(), "P".into(), 800.0, "valorant".into()));
+    for step in 1..=3 {
+        for attempted in [false, true] {
+            let mut state = UiState::new();
+            let mut draft = OnboardingDraft::from_profile(&fx.profile);
+            draft.step = step;
+            draft.attempted = attempted;
+            draft.dpi = "abc".into();
+            draft.sens = "0,35".into();
+            state.onboarding = Some(draft);
+            assert!(render_with(&mut state, &fx, SIZES[1]).is_empty());
+        }
+    }
+}
+
 #[test]
 fn calibration_task_type_is_endless_flick() {
     let mut tm = TaskManager::new();
