@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::data::calibration::{CalibrationResult, RoundSignals, RunDiagnostics};
 use crate::habits::analysis::{calibration_habits, Habit, HabitFinding};
 use crate::habits::record::AimLog;
-use crate::sensitivity::combiner::Signal;
+use crate::sensitivity::combiner::{Signal, TestKind};
 
 /// A test left out of the result whose lean a named habit explains.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -115,7 +115,7 @@ fn test_falls(points: &[(f64, f64, f64)]) -> bool {
 /// round to round after allowing for the sensitivity being searched (a U in ln cm).
 pub fn still_warming_up(rounds: &[RoundSignals]) -> bool {
     let mut falling = 0;
-    for label in ["Flick", "Micro", "Tracking"] {
+    for label in [TestKind::Flick.label(), TestKind::Micro.label(), TestKind::Tracking.label()] {
         let costs = |r: &RoundSignals| -> Vec<f64> {
             r.pairs
                 .iter()

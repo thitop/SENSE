@@ -236,7 +236,7 @@ fn titles_phrases_and_mappings() {
     assert_eq!(Habit::MicroCreep.practice(), TaskType::MicroAdjust);
     assert_eq!(Habit::MissLeanFlick.practice(), TaskType::Flick);
     assert_eq!(Habit::TrackingShakes.test_label(), "Tracking");
-    assert_eq!(Habit::MissLeanMicro.test_label(), "Micro");
+    assert_eq!(Habit::MissLeanMicro.test_label(), "Micro-adjustment");
     assert_eq!(Habit::FlickPast(FlickBand::Mid).lean(), Some(Signal::TooFast));
     assert_eq!(Habit::TrackingTrails.lean(), Some(Signal::TooSlow));
     assert_eq!(Habit::FlickCorrections.lean(), None);

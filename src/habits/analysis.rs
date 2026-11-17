@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::game::tasks::flick::FlickBand;
 use crate::game::tasks::TaskType;
 use crate::habits::record::{AimKind, AimLog, PlayContext, TargetRecord, TrackingRecord};
-use crate::sensitivity::combiner::Signal;
+use crate::sensitivity::combiner::{Signal, TestKind};
 
 /// Practice minimum for a measure (records in the session).
 const MIN_RECORDS: usize = 12;
@@ -316,9 +316,9 @@ impl Habit {
 
     pub fn test_label(self) -> &'static str {
         match self.practice() {
-            TaskType::Flick => "Flick",
-            TaskType::MicroAdjust => "Micro",
-            _ => "Tracking",
+            TaskType::Flick => TestKind::Flick.label(),
+            TaskType::MicroAdjust => TestKind::Micro.label(),
+            _ => TestKind::Tracking.label(),
         }
     }
 
@@ -438,17 +438,17 @@ pub fn calibration_habits(log: &AimLog, result_cm: f64) -> Vec<HabitFinding> {
     use std::collections::BTreeSet;
     let mut blocks = BTreeSet::new();
     let mut cms = BTreeSet::new();
-    let mut records = 0usize;
     for c in log.targets.iter().map(|r| &r.ctx).chain(log.tracking.iter().map(|r| &r.ctx)) {
         if counted(c) {
-            records += 1;
-            blocks.insert(c.block);
+            if let Some(b) = c.block {
+                blocks.insert(b);
+            }
             if c.cm_360.is_finite() && c.cm_360 > 0.0 {
                 cms.insert(cm_key(c.cm_360));
             }
         }
     }
-    if records < CAL_MIN_RECORDS || blocks.len() < CAL_MIN_BLOCKS || !(result_cm > 0.0) {
+    if blocks.len() < CAL_MIN_BLOCKS || !(result_cm > 0.0) {
         return Vec::new();
     }
     let at = result_cm.ln();
@@ -463,7 +463,16 @@ pub fn calibration_habits(log: &AimLog, result_cm: f64) -> Vec<HabitFinding> {
                 }
             }
         }
-        if pts.is_empty() {
+        let enough = match measure {
+            Measure::MissLeanFlick | Measure::MissLeanMicro => 10,
+            _ => CAL_MIN_RECORDS,
+        };
+        let total: usize = pts.iter().map(|p| p.2 as usize).sum();
+        let measure_blocks = blocks
+            .iter()
+            .filter(|&&b| measure.statistic(log, |c| counted(c) && c.block == Some(b)).is_some())
+            .count();
+        if pts.is_empty() || total < enough || measure_blocks < CAL_MIN_BLOCKS {
             continue;
         }
         let w: f64 = pts.iter().map(|p| p.2).sum();

@@ -4,7 +4,7 @@ use aim_trainer::habits::analysis::*;
 use aim_trainer::habits::record::*;
 use aim_trainer::habits::trust::{habit_report, left_out_notes, still_warming_up};
 use aim_trainer::habits::HabitReport;
-use aim_trainer::sensitivity::combiner::Signal;
+use aim_trainer::sensitivity::combiner::{Signal, TestKind};
 use aim_trainer::sensitivity::paired::Side;
 use aim_trainer::sensitivity::pooling::Pooled;
 use chrono::Utc;
@@ -155,12 +155,12 @@ fn rounds(cms: &[f64], fall_per_round: f64) -> Vec<RoundSignals> {
             let u = 1.0 + 0.8 * (cm / 35.0).ln().powi(2);
             let cost = u * (1.0 - fall_per_round * i as f64);
             let mut pairs = Vec::new();
-            for test in ["Flick", "Micro", "Tracking"] {
+            for test in [TestKind::Flick.label(), TestKind::Micro.label(), TestKind::Tracking.label()] {
                 for k in 0..4 {
                     let wobble = 1.0 + 0.01 * ((i + k) % 3) as f64;
                     pairs.push(PairRecord {
                         test: test.into(),
-                        band: (test == "Flick").then(|| "mid".to_string()),
+                        band: (test == TestKind::Flick.label()).then(|| "mid".to_string()),
                         faster_cost: cost * wobble,
                         slower_cost: cost * wobble * 1.1,
                         signal: Signal::TooFast,
@@ -194,7 +194,7 @@ fn few_rounds_never_warm_up() {
 fn diag(left_out: &[&str], estimate: f64) -> RunDiagnostics {
     RunDiagnostics {
         rounds: rounds(&[30.0, 40.0, 50.0], 0.0),
-        estimates: vec![EstimateRecord { test: "Tracking".into(), cm_360: estimate, rel_uncertainty: 0.1 }],
+        estimates: vec![EstimateRecord { test: TestKind::Tracking.label().into(), cm_360: estimate, rel_uncertainty: 0.1 }],
         left_out: left_out.iter().map(|s| s.to_string()).collect(),
         ..Default::default()
     }
@@ -250,4 +250,77 @@ fn old_profile_loads_without_habits() {
     with.habits = Some(HabitReport { warming_up: true, ..Default::default() });
     let back: CalibrationResult = serde_json::from_str(&serde_json::to_string(&with).unwrap()).unwrap();
     assert_eq!(back.habits, with.habits);
+}
+
+#[test]
+fn real_labels_drive_warm_up_and_left_out() {
+    // The labels diagnostics really carry: "Flicking", "Micro-adjustment", "Tracking".
+    assert_eq!(Habit::FlickShort(FlickBand::Far).test_label(), TestKind::Flick.label());
+    assert_eq!(Habit::MicroCreep.test_label(), TestKind::Micro.label());
+    let r = rounds(&FAR_TO_NEAR, 0.25 / 7.0);
+    assert!(r[0].pairs.iter().any(|p| p.test == "Flicking") && r[0].pairs.iter().any(|p| p.test == "Micro-adjustment"));
+    // Only Flicking and Micro-adjustment fall: warm-up still fires without Tracking.
+    let only_two: Vec<RoundSignals> = r
+        .into_iter()
+        .map(|mut x| {
+            x.pairs.retain(|p| p.test != "Tracking");
+            x
+        })
+        .collect();
+    assert!(still_warming_up(&only_two));
+    let d = RunDiagnostics {
+        rounds: rounds(&[30.0, 40.0, 50.0], 0.0),
+        estimates: vec![EstimateRecord { test: "Flicking".into(), cm_360: 60.0, rel_uncertainty: 0.1 }],
+        left_out: vec!["Flicking".into()],
+        ..Default::default()
+    };
+    let notes = left_out_notes(&d, &[finding(Habit::FlickPast(FlickBand::Far))]);
+    assert_eq!(notes.len(), 1);
+    assert_eq!(notes[0].test, "Flicking");
+}
+
+#[test]
+fn a_measure_needs_its_own_sixteen_records() {
+    let mut log = AimLog::default();
+    let mut n = 0;
+    for_each_group(|c| {
+        log.targets.push(flick(FlickBand::Far, 0.78, 1, c)); // 42 far flicks
+        n += 1;
+        if n <= 12 {
+            log.tracking.push(track(90.0, 0.1, c)); // only 12 tracking records
+        }
+    });
+    let f = calibration_habits(&log, 40.0);
+    assert!(f.iter().any(|f| f.habit == Habit::FlickShort(FlickBand::Far)));
+    assert!(f.iter().all(|f| f.habit != Habit::TrackingTrails), "{f:?}");
+}
+
+#[test]
+fn micro_overshoot_not_named_from_two_records() {
+    let mut log = AimLog::default();
+    for_each_group(|c| log.targets.push(flick(FlickBand::Far, 1.0, 1, c)));
+    log.targets.push(micro(true, ctx(40.0, 3)));
+    log.targets.push(micro(true, ctx(40.0, 3)));
+    let f = calibration_habits(&log, 40.0);
+    assert!(f.iter().all(|f| f.habit != Habit::MicroOvershoot), "{f:?}");
+}
+
+#[test]
+fn miss_lean_needs_ten_misses() {
+    let mut log = AimLog::default();
+    let mut k = 0;
+    for_each_group(|c| {
+        let mut r = flick(FlickBand::Far, 1.0, 1, c);
+        if k < 3 {
+            r.misses = vec![[3.0, 0.0], [3.0, 0.0]]; // 6 misses, all leaning
+        }
+        k += 1;
+        log.targets.push(r);
+    });
+    assert!(calibration_habits(&log, 40.0).iter().all(|f| f.habit != Habit::MissLeanFlick));
+    let mut log2 = log.clone();
+    for r in log2.targets.iter_mut().take(8) {
+        r.misses = vec![[3.0, 0.0], [3.0, 0.0]]; // 16 misses
+    }
+    assert!(calibration_habits(&log2, 40.0).iter().any(|f| f.habit == Habit::MissLeanFlick));
 }
