@@ -304,18 +304,22 @@ impl Habit {
         }
     }
 
+    /// The value in the habit's own words ("18% short"). A value on the other side of clean
+    /// for this habit never prints as a negative number: it reads in the measure's neutral
+    /// words instead ("105% of the way", "10 ms ahead").
     pub fn value_text(self, v: f32) -> String {
         let r = |x: f32| x.round() as i64;
-        match self {
-            Habit::FlickShort(_) => format!("{}% short", r((1.0 - v) * 100.0)),
-            Habit::FlickPast(_) => format!("{}% past", r((v - 1.0) * 100.0)),
-            Habit::FlickCorrections => format!("{v:.1} moves per target"),
-            Habit::MicroOvershoot => format!("{}% overshoot", r(v * 100.0)),
-            Habit::MicroCreep => format!("{}% creep", r(v * 100.0)),
-            Habit::TrackingTrails => format!("{} ms behind", r(v)),
-            Habit::TrackingAhead => format!("{} ms ahead", r(-v)),
-            Habit::TrackingShakes => format!("{v:.1}\u{d7} target size"),
-            Habit::MissLeanFlick | Habit::MissLeanMicro => format!("{v:.1}\u{d7} target size off"),
+        let (n, text): (i64, String) = match self {
+            Habit::FlickShort(_) => (r((1.0 - v) * 100.0), format!("{}% short", r((1.0 - v) * 100.0))),
+            Habit::FlickPast(_) => (r((v - 1.0) * 100.0), format!("{}% past", r((v - 1.0) * 100.0))),
+            Habit::TrackingTrails => (r(v), format!("{} ms behind", r(v))),
+            Habit::TrackingAhead => (r(-v), format!("{} ms ahead", r(-v))),
+            _ => return self.measure().value_text(v),
+        };
+        if n < 0 {
+            self.measure().value_text(v)
+        } else {
+            text
         }
     }
 

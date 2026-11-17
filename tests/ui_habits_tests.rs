@@ -77,3 +77,18 @@ fn left_out_sentence_text() {
         "Tracking was left out of the result: you trailed the target at every speed tested. That's a habit to practise, not a sensitivity problem."
     );
 }
+
+#[test]
+fn since_line_never_shows_a_negative_number() {
+    let l = card_lines(
+        &far_short(None),
+        &Progress { points: vec![1.05], practising_elsewhere: false },
+    );
+    let line = l.progress.unwrap();
+    assert_eq!(line, "Since calibrating: 18% → 105%");
+    let l = card_lines(
+        &finding(Habit::TrackingTrails, 62.0, None),
+        &Progress { points: vec![-10.0], practising_elsewhere: false },
+    );
+    assert_eq!(l.progress.as_deref(), Some("Since calibrating: 62 → 10"));
+}

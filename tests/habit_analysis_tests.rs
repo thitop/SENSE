@@ -245,3 +245,22 @@ fn titles_phrases_and_mappings() {
     assert!((Measure::FlickLanding(FlickBand::Far).badness(0.8) - 0.2).abs() < 1e-5);
     assert!((Measure::TrackingLag.badness(-50.0) - 50.0).abs() < 1e-5);
 }
+
+#[test]
+fn value_text_never_prints_a_negative_number() {
+    let b = FlickBand::Far;
+    assert_eq!(Habit::FlickShort(b).value_text(1.05), "105% of the way");
+    assert_eq!(Habit::FlickPast(b).value_text(0.9), "90% of the way");
+    assert_eq!(Habit::TrackingTrails.value_text(-10.0), "10 ms ahead");
+    assert_eq!(Habit::TrackingAhead.value_text(10.0), "10 ms behind");
+    for h in [Habit::FlickShort(b), Habit::FlickPast(b)] {
+        for v in [0.0f32, 0.5, 0.9, 1.0, 1.05, 2.0] {
+            assert!(!h.value_text(v).contains('-'), "{h:?} {v}");
+        }
+    }
+    for h in [Habit::TrackingTrails, Habit::TrackingAhead] {
+        for v in [-80.0f32, -10.0, 0.0, 10.0, 80.0] {
+            assert!(!h.value_text(v).contains('-'), "{h:?} {v}");
+        }
+    }
+}
