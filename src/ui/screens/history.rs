@@ -90,6 +90,18 @@ fn stat(label: &'static str, value: String, unit: Option<&'static str>, caption:
     DetailStat { label, value, unit, caption }
 }
 
+/// The sensitivity a calibration session's habits are read at. The session stores the run's own
+/// (unpooled) result; My sensitivity shows the pooled one. When this session is the profile's
+/// latest calibration (the session is stamped with the result's `at`), use the pooled result so
+/// both views read at the same cm. Any other session, or one saved before the stamps matched,
+/// keeps its own tested sensitivity.
+pub fn habit_result_cm(s: &SessionRecord, profile: &crate::data::PlayerProfile) -> f64 {
+    match &profile.last_calibration {
+        Some(cal) if cal.at == s.timestamp && !cal.no_answer && cal.cm_360 > 0.0 => cal.cm_360,
+        _ => s.tested_cm_360,
+    }
+}
+
 /// The tiles of a session's detail page, in display order. Values a session didn't record
 /// (no shots, e.g. tracking) show "—".
 pub fn detail_stats(s: &SessionRecord) -> Vec<DetailStat> {
@@ -236,7 +248,7 @@ fn detail(ui: &mut egui::Ui, state: &mut UiState, model: &UiModel, s: &SessionRe
 
     if let Some(report) = &s.habits {
         ui.add_space(S3);
-        crate::ui::habits::cards(ui, model, report, s.timestamp, s.tested_cm_360, actions);
+        crate::ui::habits::cards(ui, model, report, s.timestamp, habit_result_cm(s, model.profile), actions);
     } else {
         let rows = crate::habits::trend::session_rows(model.history, s);
         crate::ui::habits::session_section(ui, &rows);

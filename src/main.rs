@@ -308,6 +308,7 @@ impl GameState {
     fn record_session(
         &mut self,
         task_type: String,
+        timestamp: chrono::DateTime<chrono::Utc>,
         tested_cm_360: f64,
         score: u64,
         duration_secs: f32,
@@ -317,7 +318,7 @@ impl GameState {
         let record = SessionRecord {
             session_id: format!("sess_{}", chrono::Utc::now().timestamp_millis()),
             task_type,
-            timestamp: chrono::Utc::now(),
+            timestamp,
             duration_secs,
             tested_cm_360,
             tested_dpi: self.player_dpi,
@@ -345,7 +346,8 @@ impl GameState {
         // Before pooling: the report reads this run's own answer and left-out tests.
         let report = habits::trust::habit_report(&aim, &result);
         result.habits = Some(report.clone());
-        self.record_session("Calibration".into(), result.cm_360, totals.score, totals.duration_secs, Some(aim), Some(report));
+        // Stamped with the result's time so History can tell which session is the latest calibration.
+        self.record_session("Calibration".into(), result.at, result.cm_360, totals.score, totals.duration_secs, Some(aim), Some(report));
         let profile_id = self.data_manager.profile_manager.active_profile_id.clone().unwrap_or_else(|| "default".into());
         if let Err(e) = self.data_manager.archive_calibration(&profile_id, &result) {
             log::warn!("Could not archive the calibration: {e}");
@@ -644,7 +646,7 @@ impl GameState {
                     self.aim.commit();
                     let aim = self.aim.take_log();
                     self.aim.reset();
-                    self.record_session(m.task_name, self.current_cm_360, m.score, m.duration_secs, Some(aim), None);
+                    self.record_session(m.task_name, chrono::Utc::now(), self.current_cm_360, m.score, m.duration_secs, Some(aim), None);
                 }
                 // Free the cursor so the result card's buttons can be clicked.
                 self.lock_cursor(false);

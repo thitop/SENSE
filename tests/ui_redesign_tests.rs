@@ -1021,3 +1021,21 @@ fn hits_without_an_offset_do_not_average_in_a_zero() {
     assert_eq!(t.value, "—");
     assert_eq!(t.unit, None);
 }
+
+#[test]
+fn calibration_card_reads_at_the_pooled_result_only_for_the_latest_run() {
+    use aim_trainer::ui::screens::history::habit_result_cm;
+    let at = Utc::now();
+    let mut profile = onboarded_profile();
+    let mut cal = sample_calibration(); // pooled: 34.2
+    cal.at = at;
+    profile.last_calibration = Some(cal);
+    let mut latest = session_at(at, "Calibration");
+    latest.tested_cm_360 = 38.0; // the run's own, unpooled result
+    assert_eq!(habit_result_cm(&latest, &profile), 34.2);
+    let mut older = session_at(at - Duration::days(3), "Calibration");
+    older.tested_cm_360 = 45.0;
+    assert_eq!(habit_result_cm(&older, &profile), 45.0);
+    profile.last_calibration = None;
+    assert_eq!(habit_result_cm(&latest, &profile), 38.0);
+}
