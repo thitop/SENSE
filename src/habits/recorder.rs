@@ -7,6 +7,7 @@ use crate::game::tasks::micro_adjust::mouse_offset_deg;
 use crate::game::tasks::AimTarget;
 use crate::habits::record::{AimKind, AimLog, PlayContext, TargetRecord, TrackingRecord};
 use crate::habits::strokes::{band_for_angle, stroke_features, DegSample};
+use crate::sensitivity::combiner::DirectionalSignal;
 use crate::sensitivity::tracking_signal::TrackingWindow;
 
 const MAX_MISSES: usize = 8;
@@ -193,6 +194,10 @@ impl AimRecorder {
 
     pub fn push_tracking(&mut self, windows: &[TrackingWindow]) {
         for w in windows {
+            // A window that counted nothing (or too little) measured nothing: not a clean one.
+            if DirectionalSignal::signal(w).is_none() {
+                continue;
+            }
             self.pending.tracking.push(TrackingRecord {
                 mean_along_deg: fin(w.mean_along_deg),
                 lag_ms: fin(w.lag_ms),

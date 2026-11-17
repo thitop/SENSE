@@ -338,3 +338,56 @@ fn forget_current_keeps_pending_and_lets_a_reused_id_start() {
     r.commit();
     assert_eq!(r.take_log().targets.len(), 2);
 }
+
+#[test]
+fn tracking_windows_that_measured_nothing_are_not_stored() {
+    let mut r = AimRecorder::new();
+    r.set_context(ctx(33.0));
+    let mut an = TrackingAnalyzer::new(1.5);
+    let mut ws = Vec::new();
+    for _ in 0..2000 {
+        an.push(1.0 / 60.0, Vec2::new(-0.5, 0.0), Vec2::new(20.0, 0.0), 1.0);
+        ws.extend(an.take_windows());
+        if !ws.is_empty() {
+            break;
+        }
+    }
+    let good = ws[0];
+    assert!(good.signal.is_some());
+    let mut empty = good;
+    empty.signal = None;
+    empty.lag_ms = 0.0;
+    empty.cross_rms_deg = 0.0;
+    r.push_tracking(&[good, empty, empty]);
+    r.commit();
+    assert_eq!(r.take_log().tracking.len(), 1);
+}
+
+#[test]
+fn empty_windows_do_not_hide_a_trailing_habit() {
+    use aim_trainer::habits::analysis::{session_values, Habit};
+    let mut r = AimRecorder::new();
+    r.set_context(ctx(33.0));
+    let mut an = TrackingAnalyzer::new(1.5);
+    let mut ws = Vec::new();
+    for _ in 0..2000 {
+        an.push(1.0 / 60.0, Vec2::new(-0.5, 0.0), Vec2::new(20.0, 0.0), 1.0);
+        ws.extend(an.take_windows());
+        if !ws.is_empty() {
+            break;
+        }
+    }
+    let mut trailing = ws[0];
+    trailing.lag_ms = 60.0;
+    let mut empty = trailing;
+    empty.signal = None;
+    empty.lag_ms = 0.0;
+    empty.cross_rms_deg = 0.0;
+    let mixed: Vec<_> = (0..24).map(|i| if i % 2 == 0 { trailing } else { empty }).collect();
+    r.push_tracking(&mixed);
+    r.commit();
+    let log = r.take_log();
+    assert_eq!(log.tracking.len(), 12);
+    let v = session_values(&log);
+    assert!(v.iter().any(|m| m.habit == Some(Habit::TrackingTrails)), "{v:?}");
+}
