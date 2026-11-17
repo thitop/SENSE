@@ -54,6 +54,12 @@ Press **Esc** to pause. The interrupted test starts again from the beginning whe
 - The value for your main game with a copy button, and the values for every other game.
 - Each test's own estimate, and graphs of how the search narrowed down.
 
+**What to practise** lists up to three aim habits that are still there at your best sensitivity, so
+changing sensitivity won't fix them. The button on each card starts the matching practice scenario. The
+card also shows your progress since calibrating, counting practice sessions played within 12% of the
+result. Notes under the cards tell you when the run was still warming up, or when a test was left out
+because of a habit.
+
 **Use this sensitivity** makes it the sensitivity for practice.
 
 **Run again** adds to your result instead of replacing it. Recent runs (last 14 days, same DPI, up to 5)
@@ -79,6 +85,9 @@ Six scenarios, always at your saved sensitivity:
 | Micro-adjust | Small corrections on head-sized targets. |
 | Speed | Targets vanish faster the longer you last. |
 | Moving targets | Hit the moving target, then the next one. |
+
+Flick spreads its targets evenly over three distances. History shows each session's habits compared
+with your previous five sessions of the same scenario.
 
 Sensitivity only changes during calibration.
 
