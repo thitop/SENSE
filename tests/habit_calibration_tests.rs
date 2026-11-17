@@ -319,8 +319,8 @@ fn miss_lean_needs_ten_misses() {
     });
     assert!(calibration_habits(&log, 40.0).iter().all(|f| f.habit != Habit::MissLeanFlick));
     let mut log2 = log.clone();
-    for r in log2.targets.iter_mut().take(8) {
-        r.misses = vec![[3.0, 0.0], [3.0, 0.0]]; // 16 misses
+    for r in log2.targets.iter_mut().take(14) {
+        r.misses = vec![[3.0, 0.0], [3.0, 0.0]]; // 28 misses over three blocks
     }
     assert!(calibration_habits(&log2, 40.0).iter().any(|f| f.habit == Habit::MissLeanFlick));
 }
