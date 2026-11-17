@@ -10,8 +10,11 @@ use glam::Vec3;
 use std::time::Instant;
 
 use super::hit_detection::Ray;
+use crate::habits::record::AimKind;
 use crate::sensitivity::tracking_signal::TrackingWindow;
-use flick::{FlickSpawn, FlickTask};
+use flick::{banded_order, FlickBand, FlickSpawn, FlickTask};
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 use micro_adjust::{MicroAdjustTask, MicroSpawn};
 use moving::MovingTargetTask;
 use speed::SpeedTask;
@@ -30,6 +33,17 @@ pub struct TaskMetrics {
     pub duration_secs: f32,
     pub custom_metric_label: &'static str,
     pub custom_metric_value: String,
+}
+
+/// The target the player is aiming at right now. `id` is stable for a target's life and
+/// changes when the next one appears.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AimTarget {
+    pub id: u64,
+    pub center: Vec3,
+    pub radius: f32,
+    pub kind: AimKind,
+    pub band: Option<FlickBand>,
 }
 
 pub trait Task: Send + Sync {
@@ -55,6 +69,10 @@ pub trait Task: Send + Sync {
     }
     /// Offset of the live micro-adjustment target.
     fn micro_spawn(&self) -> Option<MicroSpawn> {
+        None
+    }
+    /// The live target being aimed at, if the task has one.
+    fn aim_target(&self) -> Option<AimTarget> {
         None
     }
     /// Tracking windows finished since the last call.
@@ -121,6 +139,18 @@ impl Task for CalibrationTask {
     fn flick_spawn(&self) -> Option<FlickSpawn> {
         self.0.flick_spawn()
     }
+    fn aim_target(&self) -> Option<AimTarget> {
+        self.0.aim_target()
+    }
+}
+
+/// Practice flick: ten targets of each distance band, in random order.
+fn practice_flick() -> FlickTask {
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos() as u64);
+    let mut rng = StdRng::seed_from_u64(seed);
+    FlickTask::banded(banded_order(10, &mut rng), seed, 0.35)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -141,7 +171,7 @@ pub struct TaskManager {
 
 impl TaskManager {
     pub fn new() -> Self {
-        let default_task = Box::new(FlickTask::new(30, 0.35));
+        let default_task = Box::new(practice_flick());
         Self {
             current_task: default_task,
             current_type: TaskType::Flick,
@@ -154,7 +184,7 @@ impl TaskManager {
     pub fn set_task(&mut self, task_type: TaskType) {
         self.current_type = task_type;
         self.current_task = match task_type {
-            TaskType::Flick => Box::new(FlickTask::new(30, 0.35)),
+            TaskType::Flick => Box::new(practice_flick()),
             TaskType::Tracking => Box::new(TrackingTask::new(30.0, 0.35, 3.8)),
             TaskType::Switching => Box::new(SwitchingTask::new(25, 4, 0.32)),
             TaskType::MicroAdjust => Box::new(MicroAdjustTask::new(30, 0.16)),
@@ -178,6 +208,15 @@ impl TaskManager {
 
     pub fn current_micro_spawn(&self) -> Option<MicroSpawn> {
         self.current_task.micro_spawn()
+    }
+
+    /// The target being aimed at; `None` unless the task is running.
+    pub fn current_aim_target(&self) -> Option<AimTarget> {
+        if self.state == TaskState::Running {
+            self.current_task.aim_target()
+        } else {
+            None
+        }
     }
 
     pub fn take_tracking_windows(&mut self) -> Vec<TrackingWindow> {

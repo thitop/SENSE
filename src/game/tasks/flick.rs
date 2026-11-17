@@ -9,7 +9,8 @@ use super::super::hit_detection::Ray;
 use super::super::scoring::ScoreTracker;
 use super::super::target::{Target, TargetState};
 use super::micro_adjust::MISS_PENALTY_SECS;
-use super::{Task, TaskMetrics};
+use super::{AimTarget, Task, TaskMetrics};
+use crate::habits::record::AimKind;
 use crate::sensitivity::paired::{abba, PairBook, PairResult, Side};
 
 /// A paired target that times out costs this on top of its time and misses: as much as two
@@ -412,6 +413,12 @@ impl Task for FlickTask {
 
     fn flick_spawn(&self) -> Option<FlickSpawn> {
         self.current_spawn()
+    }
+
+    fn aim_target(&self) -> Option<AimTarget> {
+        let live = self.targets.iter().find(|t| t.is_alive())?;
+        let band = self.spawns.iter().find(|(id, _)| *id == live.id).and_then(|(_, s)| s.band);
+        Some(AimTarget { id: live.id, center: live.position, radius: live.base_radius, kind: AimKind::Flick, band })
     }
 
     fn sens_factor(&self) -> f32 {

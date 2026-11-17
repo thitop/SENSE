@@ -27,6 +27,10 @@ pub struct TrackingWindow {
     pub mean_speed_deg_s: f32,
     /// Share of the window that counted (the rest was right after a turn or a still target).
     pub coverage: f32,
+    /// The target's angular radius, degrees.
+    pub radius_deg: f32,
+    /// The target mostly moved sideways (mean |x| velocity at least |y|) over the counted samples.
+    pub horizontal: bool,
     signal: Option<Signal>,
 }
 
@@ -43,6 +47,7 @@ pub struct TrackingAnalyzer {
     along: Vec<f32>,
     cross: Vec<f32>,
     speed: Vec<f32>,
+    vel_abs: Vec<Vec2>,
     windows: Vec<TrackingWindow>,
 }
 
@@ -67,6 +72,7 @@ impl TrackingAnalyzer {
             along: Vec::new(),
             cross: Vec::new(),
             speed: Vec::new(),
+            vel_abs: Vec::new(),
             windows: Vec::new(),
         }
     }
@@ -84,6 +90,7 @@ impl TrackingAnalyzer {
             self.along.push(aim_rel.dot(along_dir));
             self.cross.push(aim_rel.dot(across_dir));
             self.speed.push(speed);
+            self.vel_abs.push(target_vel_deg_s.abs());
             self.counted_s += dt;
         }
         // Within half a tick: summing f32 ticks lands just short of the window length.
@@ -104,6 +111,8 @@ impl TrackingAnalyzer {
         let mean_along = mean(&self.along);
         let mean_cross = mean(&self.cross);
         let mean_speed = mean(&self.speed);
+        let vel_x = mean(&self.vel_abs.iter().map(|v| v.x).collect::<Vec<_>>());
+        let vel_y = mean(&self.vel_abs.iter().map(|v| v.y).collect::<Vec<_>>());
         let cross_rms = if n == 0 {
             0.0
         } else {
@@ -127,6 +136,8 @@ impl TrackingAnalyzer {
             cross_rms_deg: cross_rms,
             mean_speed_deg_s: mean_speed,
             coverage,
+            radius_deg: self.radius_deg,
+            horizontal: vel_x >= vel_y,
             signal,
         });
         self.elapsed = 0.0;
@@ -134,5 +145,6 @@ impl TrackingAnalyzer {
         self.along.clear();
         self.cross.clear();
         self.speed.clear();
+        self.vel_abs.clear();
     }
 }

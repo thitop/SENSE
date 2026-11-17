@@ -249,3 +249,20 @@ fn agreeing_bands_are_rarely_reported() {
     println!("false distance flags: {rate:.2}");
     assert!(rate <= 0.06, "{rate:.2}");
 }
+
+#[test]
+fn practice_flick_spawns_ten_per_band() {
+    use aim_trainer::game::tasks::{TaskManager, TaskType};
+    let mut m = TaskManager::new();
+    m.set_task(TaskType::Flick);
+    m.start_task_now();
+    let mut counts = [0usize; 3];
+    for _ in 0..30 {
+        m.update(0.016, level_aim());
+        let a = m.current_aim_target().expect("a live target");
+        counts[a.band.expect("practice flicks are banded").index()] += 1;
+        let ray = Ray { origin: EYE, direction: (a.center - EYE).normalize() };
+        assert!(m.on_click(ray));
+    }
+    assert_eq!(counts, [10, 10, 10]);
+}

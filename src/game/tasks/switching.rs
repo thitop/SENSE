@@ -5,7 +5,8 @@ use std::time::Instant;
 use super::super::hit_detection::Ray;
 use super::super::scoring::ScoreTracker;
 use super::super::target::Target;
-use super::{Task, TaskMetrics};
+use super::{AimTarget, Task, TaskMetrics};
+use crate::habits::record::AimKind;
 
 pub struct SwitchingTask {
     targets: Vec<Target>,
@@ -149,6 +150,11 @@ impl Task for SwitchingTask {
         }
 
         hit_active
+    }
+
+    fn aim_target(&self) -> Option<AimTarget> {
+        let t = self.targets.iter().find(|t| t.is_alive() && Some(t.id) == self.active_target_id)?;
+        Some(AimTarget { id: t.id, center: t.position, radius: t.base_radius, kind: AimKind::Flick, band: None })
     }
 
     fn is_complete(&self) -> bool {

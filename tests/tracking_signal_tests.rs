@@ -266,3 +266,18 @@ fn slow_correctors_lean_faster_but_not_far() {
         assert!((0.80..=1.05).contains(&r), "pref {pref}: ratio {r:.2}");
     }
 }
+
+#[test]
+fn horizontal_motion_marks_window_horizontal() {
+    let run = |vel: Vec2| {
+        let mut a = TrackingAnalyzer::new(RADIUS_DEG);
+        for _ in 0..500 {
+            a.push(DT, Vec2::ZERO, vel, 1.0);
+        }
+        a.take_windows().remove(0)
+    };
+    let h = run(Vec2::new(20.0, 0.0));
+    assert!(h.horizontal);
+    assert_eq!(h.radius_deg, RADIUS_DEG);
+    assert!(!run(Vec2::new(0.0, 20.0)).horizontal);
+}

@@ -7,7 +7,8 @@ use super::super::hit_detection::Ray;
 use super::super::scoring::ScoreTracker;
 use super::super::target::Target;
 use super::flick::place_target;
-use super::{Task, TaskMetrics};
+use super::{AimTarget, Task, TaskMetrics};
+use crate::habits::record::AimKind;
 use crate::sensitivity::paired::{abba, PairBook, PairResult, Side};
 
 /// How far from the aim a micro target appears, in degrees. Below ~1.5° a head-sized target
@@ -234,6 +235,11 @@ impl Task for MicroAdjustTask {
 
     fn is_complete(&self) -> bool {
         self.is_finished
+    }
+
+    fn aim_target(&self) -> Option<AimTarget> {
+        let live = self.targets.iter().find(|t| t.is_alive())?;
+        Some(AimTarget { id: live.id, center: live.position, radius: live.base_radius, kind: AimKind::Micro, band: None })
     }
 
     fn micro_spawn(&self) -> Option<MicroSpawn> {
