@@ -107,7 +107,7 @@ pub fn cards(
         ui.columns(COLUMNS, |cols| {
             for (col, f) in cols.iter_mut().zip(&report.findings) {
                 let p = progress(model.history, f.habit, since, result_cm);
-                card(col, f, &p, actions);
+                col.with_layout(Layout::top_down(Align::Min), |col| card(col, f, &p, actions));
             }
         });
     }
