@@ -4,6 +4,7 @@
 mod data;
 mod engine;
 mod game;
+mod habits;
 mod sensitivity;
 mod ui;
 

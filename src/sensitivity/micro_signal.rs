@@ -14,6 +14,7 @@ use std::time::Instant;
 use super::combiner::{DirectionalSignal, Signal};
 use super::converter::SensitivityConverter;
 use super::path_recorder::MouseSample;
+use crate::habits::strokes::DegSample;
 
 /// Degrees of view rotation per mouse count.
 pub fn deg_per_count(dpi: f64, cm_360: f64) -> f32 {
@@ -21,7 +22,7 @@ pub fn deg_per_count(dpi: f64, cm_360: f64) -> f32 {
 }
 
 /// Less total movement than this says nothing about the sensitivity.
-const MIN_MOVEMENT_DEG: f32 = 0.1;
+pub(crate) const MIN_MOVEMENT_DEG: f32 = 0.1;
 /// Going past the target centre by more than this (and back) is an overshoot; within it is
 /// ordinary stopping noise. The larger of an absolute floor and a share of the distance.
 const CROSS_TOLERANCE_MIN_DEG: f32 = 0.15;
@@ -34,9 +35,63 @@ const GAP_MS: f32 = 25.0;
 const STROKE_ON_SHARE: f32 = 0.15;
 const STROKE_OFF_SHARE: f32 = 0.08;
 /// Ignore strokes that move less than this toward or away from the target.
-const MIN_STROKE_DEG: f32 = 0.05;
+pub(crate) const MIN_STROKE_DEG: f32 = 0.05;
 /// This many strokes toward the target without going past it: the player kept stopping short.
 const CREEP_STROKES: u32 = 3;
+
+/// Per-stroke net progress along the unit direction `u` (degrees), oldest first. Speed is the
+/// path covered in a short window; a stroke runs from above `STROKE_ON_SHARE` of the peak speed
+/// to below `STROKE_OFF_SHARE`, or ends at a gap in the samples. Movement before a stroke starts
+/// counts toward it.
+pub(crate) fn split_strokes(samples: &[DegSample], u: Vec2) -> Vec<f32> {
+    // Windowed speed (deg/ms) per sample.
+    let speeds: Vec<f32> = (0..samples.len())
+        .map(|i| {
+            let ti = samples[i].t_ms;
+            let covered: f32 = samples[..=i]
+                .iter()
+                .rev()
+                .take_while(|s| ti - s.t_ms < SPEED_WINDOW_MS)
+                .map(|s| s.d.length())
+                .sum();
+            covered / SPEED_WINDOW_MS
+        })
+        .collect();
+    let peak = speeds.iter().cloned().fold(0.0f32, f32::max);
+    let (on, off) = (peak * STROKE_ON_SHARE, peak * STROKE_OFF_SHARE);
+
+    let mut strokes: Vec<f32> = Vec::new();
+    let (mut in_stroke, mut current, mut pending) = (false, 0.0f32, 0.0f32);
+    let mut prev_ms = 0.0f32;
+    for (s, &v) in samples.iter().zip(&speeds) {
+        let progress = s.d.dot(u);
+        if in_stroke && s.t_ms - prev_ms > GAP_MS {
+            strokes.push(current);
+            (in_stroke, current) = (false, 0.0);
+        }
+        prev_ms = s.t_ms;
+        if in_stroke {
+            current += progress;
+            if v < off {
+                strokes.push(current);
+                (in_stroke, current) = (false, 0.0);
+            }
+        } else if v >= on {
+            (in_stroke, current, pending) = (true, pending + progress, 0.0);
+        } else {
+            pending += progress;
+        }
+    }
+    if in_stroke {
+        strokes.push(current);
+    }
+    strokes
+}
+
+/// How far past the target centre still counts as stopping noise.
+pub(crate) fn cross_tolerance_deg(distance_deg: f32) -> f32 {
+    CROSS_TOLERANCE_MIN_DEG.max(CROSS_TOLERANCE_SHARE * distance_deg)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MicroFeatures {
@@ -83,52 +138,13 @@ pub fn classify_micro(
         return None;
     }
     let u = target_offset_deg / d;
-    let tol = CROSS_TOLERANCE_MIN_DEG.max(CROSS_TOLERANCE_SHARE * d);
+    let tol = cross_tolerance_deg(d);
     let ms = |t: Instant| t.duration_since(start).as_secs_f32() * 1000.0;
-
-    // Windowed speed (deg/ms) per sample.
-    let speeds: Vec<f32> = (0..samples.len())
-        .map(|i| {
-            let ti = ms(samples[i].time);
-            let covered: f32 = samples[..=i]
-                .iter()
-                .rev()
-                .take_while(|s| ti - ms(s.time) < SPEED_WINDOW_MS)
-                .map(|s| s.delta.length() * deg_per_count)
-                .sum();
-            covered / SPEED_WINDOW_MS
-        })
+    let deg_samples: Vec<DegSample> = samples
+        .iter()
+        .map(|s| DegSample { t_ms: ms(s.time), d: s.delta * deg_per_count })
         .collect();
-    let peak = speeds.iter().cloned().fold(0.0f32, f32::max);
-    let (on, off) = (peak * STROKE_ON_SHARE, peak * STROKE_OFF_SHARE);
-
-    // Split into strokes; each stroke's net progress along the target direction.
-    let mut strokes: Vec<f32> = Vec::new();
-    let (mut in_stroke, mut current, mut pending) = (false, 0.0f32, 0.0f32);
-    let mut prev_ms = 0.0f32;
-    for (s, &v) in samples.iter().zip(&speeds) {
-        let t = ms(s.time);
-        let progress = s.delta.dot(u) * deg_per_count;
-        if in_stroke && t - prev_ms > GAP_MS {
-            strokes.push(current);
-            (in_stroke, current) = (false, 0.0);
-        }
-        prev_ms = t;
-        if in_stroke {
-            current += progress;
-            if v < off {
-                strokes.push(current);
-                (in_stroke, current) = (false, 0.0);
-            }
-        } else if v >= on {
-            (in_stroke, current, pending) = (true, pending + progress, 0.0);
-        } else {
-            pending += progress;
-        }
-    }
-    if in_stroke {
-        strokes.push(current);
-    }
+    let strokes = split_strokes(&deg_samples, u);
     let forward = strokes.iter().filter(|&&p| p >= MIN_STROKE_DEG).count() as u32;
     let backward = strokes.iter().filter(|&&p| p <= -MIN_STROKE_DEG).count() as u32;
 
