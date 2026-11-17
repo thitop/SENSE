@@ -302,3 +302,39 @@ fn tracking_windows_take_context() {
     assert_eq!(t.ctx.cm_360, 33.0);
     assert_eq!(log.tracking[1].lag_ms, 0.0);
 }
+
+fn side_ctx(side: Side) -> PlayContext {
+    PlayContext { cm_360: 30.0, side: Some(side), block: Some(1), warmup: false }
+}
+
+#[test]
+fn new_target_takes_the_context_after_the_update() {
+    let mut r = AimRecorder::new();
+    // Frame 1: target 1 appears on the Faster side.
+    let t1 = target(1, 10.0, AimKind::Flick);
+    r.observe_frame(0.0, Vec3::ZERO, dir(0.0, 0.0), Some(t1), side_ctx(Side::Faster), side_ctx(Side::Faster), &[]);
+    r.on_click(0.4, Vec3::ZERO, dir(10.0, 0.0), true);
+    // Frame 2: target 1 was hit, target 2 spawns on the Slower side. The pre-update side is Faster.
+    let t2 = target(2, 12.0, AimKind::Flick);
+    r.observe_frame(0.5, Vec3::ZERO, dir(10.0, 0.0), Some(t2), side_ctx(Side::Slower), side_ctx(Side::Faster), &[]);
+    r.on_click(0.9, Vec3::ZERO, dir(12.0, 0.0), true);
+    r.observe_frame(1.0, Vec3::ZERO, dir(12.0, 0.0), None, side_ctx(Side::Slower), side_ctx(Side::Slower), &[]);
+    r.commit();
+    let log = r.take_log();
+    let sides: Vec<_> = log.targets.iter().map(|t| t.ctx.side).collect();
+    assert_eq!(sides, vec![Some(Side::Faster), Some(Side::Slower)]);
+}
+
+#[test]
+fn forget_current_keeps_pending_and_lets_a_reused_id_start() {
+    let mut r = AimRecorder::new();
+    r.set_context(ctx(30.0));
+    play_hit(&mut r, 1, 4, 0.01, 100.0);
+    r.track(0.5, Vec3::ZERO, dir(0.0, 0.0), None);
+    r.forget_current();
+    // The next segment's first target reuses id 1.
+    play_hit(&mut r, 1, 4, 0.01, 100.0);
+    r.track(1.0, Vec3::ZERO, dir(0.0, 0.0), None);
+    r.commit();
+    assert_eq!(r.take_log().targets.len(), 2);
+}

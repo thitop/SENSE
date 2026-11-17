@@ -228,6 +228,7 @@ impl GameState {
             self.task_manager.start_task_now();
         }
         self.spawn_watcher.clear();
+        self.aim.forget_current();
         self.sensitivity_engine.path_recorder.start_shot();
         self.pending_curve.clear();
     }
@@ -591,10 +592,25 @@ impl GameState {
                     let counted = !run.in_warmup() && run.segment().is_some_and(|s| s.counted);
                     (run.block_number() as u8, counted)
                 });
-            self.aim.set_context(PlayContext::for_play(self.current_cm_360, factor, calibration));
+            // A new target takes the side it is played at, known only after the update;
+            // tracking windows that just completed belong to the side before it.
+            let factor_now = match self.session.mode {
+                PlayMode::Calibration => self.task_manager.sens_factor() as f64,
+                PlayMode::Practice => 1.0,
+            };
+            let target_ctx = PlayContext::for_play(self.current_cm_360, factor_now, calibration);
+            let tracking_ctx = PlayContext::for_play(self.current_cm_360, factor, calibration);
             let now = self.now();
-            self.aim.track(now, self.camera.position, self.camera.forward(), self.task_manager.current_aim_target());
-            self.aim.push_tracking(&self.task_manager.take_tracking_windows());
+            let windows = self.task_manager.take_tracking_windows();
+            self.aim.observe_frame(
+                now,
+                self.camera.position,
+                self.camera.forward(),
+                self.task_manager.current_aim_target(),
+                target_ctx,
+                tracking_ctx,
+                &windows,
+            );
             // Pairs of the paired micro and tracking tests finished this tick.
             let pairs = self.task_manager.take_pair_results();
             if self.session.records_calibration() {

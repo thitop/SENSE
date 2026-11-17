@@ -213,6 +213,33 @@ impl AimRecorder {
         self.log.tracking.extend(p.tracking);
     }
 
+    /// One frame of live play. A target that appears this frame is recorded with
+    /// `target_ctx` (the setting after the task's update, which has already moved to the new
+    /// target's side); tracking windows that completed this frame use `tracking_ctx` (the
+    /// setting before the update, since a window ending at a chunk boundary belongs to the
+    /// chunk that just ended).
+    pub fn observe_frame(
+        &mut self,
+        now_s: f64,
+        eye: Vec3,
+        aim_dir: Vec3,
+        target: Option<AimTarget>,
+        target_ctx: PlayContext,
+        tracking_ctx: PlayContext,
+        windows: &[TrackingWindow],
+    ) {
+        self.set_context(target_ctx);
+        self.track(now_s, eye, aim_dir, target);
+        self.set_context(tracking_ctx);
+        self.push_tracking(windows);
+    }
+
+    /// Drops the target in progress (or finished) without touching pending records or the log.
+    /// A new calibration segment restarts target ids, so the old one must not linger.
+    pub fn forget_current(&mut self) {
+        self.current = None;
+    }
+
     pub fn discard_pending(&mut self) {
         self.pending = AimLog::default();
         self.current = None;
