@@ -458,7 +458,8 @@ pub struct HabitFinding {
 /// Fewest counted records, and distinct blocks, a calibration needs before habits are named.
 const CAL_MIN_RECORDS: usize = 16;
 const CAL_MIN_BLOCKS: usize = 3;
-const CAL_MAX_FINDINGS: usize = 3;
+/// How many habits a calibration shows.
+pub const CAL_MAX_FINDINGS: usize = 3;
 
 fn counted(c: &PlayContext) -> bool {
     c.block.is_some() && !c.warmup
@@ -472,6 +473,13 @@ fn cm_key(cm: f32) -> i64 {
 /// over the sensitivities played, and read at `result_cm`, so a habit that only appears away
 /// from the result (a lean that belongs to the sensitivity) is not named.
 pub fn calibration_habits(log: &AimLog, result_cm: f64) -> Vec<HabitFinding> {
+    let mut all = ranked_calibration_habits(log, result_cm);
+    all.truncate(CAL_MAX_FINDINGS);
+    all
+}
+
+/// Every habit `calibration_habits` found, worst first, before the cut to what is shown.
+pub fn ranked_calibration_habits(log: &AimLog, result_cm: f64) -> Vec<HabitFinding> {
     use std::collections::BTreeSet;
     let mut blocks = BTreeSet::new();
     let mut cms = BTreeSet::new();
@@ -541,5 +549,5 @@ pub fn calibration_habits(log: &AimLog, result_cm: f64) -> Vec<HabitFinding> {
         }
     }
     found.sort_by(|a, b| b.0.total_cmp(&a.0));
-    found.into_iter().take(CAL_MAX_FINDINGS).map(|(_, f)| f).collect()
+    found.into_iter().map(|(_, f)| f).collect()
 }

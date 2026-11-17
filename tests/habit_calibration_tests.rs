@@ -390,3 +390,20 @@ fn fit_is_not_extrapolated_past_the_data() {
     let f = calibration_habits(&log, 80.0);
     assert!(f.iter().all(|f| f.habit != Habit::FlickShort(FlickBand::Far)), "{f:?}");
 }
+
+#[test]
+fn left_out_note_sees_a_habit_ranked_fourth() {
+    let mut log = AimLog::default();
+    for_each_group(|c| {
+        log.targets.push(flick(FlickBand::Short, 0.5, 1, c));
+        log.targets.push(flick(FlickBand::Mid, 0.5, 1, c));
+        log.targets.push(flick(FlickBand::Far, 0.5, 1, c));
+        log.tracking.push(track(-50.0, 0.1, c));
+    });
+    let r = result(40.0, false, Some(diag(&["Tracking"], 60.0)));
+    let report = habit_report(&log, &r);
+    assert_eq!(report.findings.len(), 3);
+    assert!(report.findings.iter().all(|f| f.habit != Habit::TrackingAhead), "{report:?}");
+    assert_eq!(report.left_out.len(), 1, "{report:?}");
+    assert_eq!(report.left_out[0].habit, Habit::TrackingAhead);
+}

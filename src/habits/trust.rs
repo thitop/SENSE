@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::data::calibration::{CalibrationResult, RoundSignals, RunDiagnostics};
-use crate::habits::analysis::{calibration_habits, Habit, HabitFinding};
+use crate::habits::analysis::{ranked_calibration_habits, Habit, HabitFinding, CAL_MAX_FINDINGS};
 use crate::habits::record::AimLog;
 use crate::sensitivity::combiner::{Signal, TestKind};
 
@@ -181,8 +181,10 @@ pub fn habit_report(log: &AimLog, result: &CalibrationResult) -> HabitReport {
     if result.no_answer {
         return HabitReport { findings: Vec::new(), no_answer: true, warming_up, left_out: Vec::new() };
     }
-    let findings = calibration_habits(log, result.cm_360);
+    // Notes look at every habit found, not just the few that fit on the screen.
+    let mut findings = ranked_calibration_habits(log, result.cm_360);
     let left_out =
         result.diagnostics.as_ref().map(|d| left_out_notes(d, &findings)).unwrap_or_default();
+    findings.truncate(CAL_MAX_FINDINGS);
     HabitReport { findings, no_answer: false, warming_up, left_out }
 }
