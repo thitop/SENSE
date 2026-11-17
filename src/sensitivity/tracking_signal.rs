@@ -31,7 +31,7 @@ pub struct TrackingWindow {
     pub radius_deg: f32,
     /// The target mostly moved sideways (mean |x| velocity at least |y|) over the counted samples.
     pub horizontal: bool,
-    signal: Option<Signal>,
+    pub signal: Option<Signal>,
 }
 
 impl DirectionalSignal for TrackingWindow {
