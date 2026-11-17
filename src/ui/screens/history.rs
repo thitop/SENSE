@@ -163,10 +163,10 @@ fn when(s: &SessionRecord, fmt: &str) -> String {
     s.timestamp.with_timezone(&chrono::Local).format(fmt).to_string()
 }
 
-pub fn show(ui: &mut egui::Ui, state: &mut UiState, model: &UiModel, _actions: &mut Vec<UiAction>) {
+pub fn show(ui: &mut egui::Ui, state: &mut UiState, model: &UiModel, actions: &mut Vec<UiAction>) {
     if let Some(id) = state.open_session.clone() {
         match find_session(model.history, &id) {
-            Some(s) => return detail(ui, state, model, s),
+            Some(s) => return detail(ui, state, model, s, actions),
             None => state.open_session = None,
         }
     }
@@ -215,7 +215,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut UiState, model: &UiModel, _actions: &
     }
 }
 
-fn detail(ui: &mut egui::Ui, state: &mut UiState, model: &UiModel, s: &SessionRecord) {
+fn detail(ui: &mut egui::Ui, state: &mut UiState, model: &UiModel, s: &SessionRecord, actions: &mut Vec<UiAction>) {
     if widgets::ghost_button(ui, Some(icon::ARROW_LEFT), "All sessions").clicked() {
         state.open_session = None;
     }
@@ -231,6 +231,14 @@ fn detail(ui: &mut egui::Ui, state: &mut UiState, model: &UiModel, s: &SessionRe
             }
         });
         ui.add_space(S3);
+    }
+
+    if let Some(report) = &s.habits {
+        ui.add_space(S3);
+        crate::ui::habits::cards(ui, model, report, s.timestamp, s.tested_cm_360, actions);
+    } else {
+        let rows = crate::habits::trend::session_rows(model.history, s);
+        crate::ui::habits::session_section(ui, &rows);
     }
 
     let points = &s.metrics.points;

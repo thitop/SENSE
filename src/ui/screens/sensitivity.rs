@@ -271,6 +271,11 @@ fn result(
         });
     }
 
+    if let Some(report) = &cal.habits {
+        ui.add_space(S8);
+        crate::ui::habits::practise_section(ui, model, cal, report, actions);
+    }
+
     ui.add_space(S8);
     section(ui, "How we got here");
     ui.label(

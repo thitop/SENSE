@@ -63,3 +63,37 @@ pub fn reaction_times(ui: &mut egui::Ui, rts: &[f32]) {
         p.line(Line::new(PlotPoints::from(pts)).color(ACCENT).width(2.0_f32));
     });
 }
+
+const SPARK_HEIGHT: f32 = 28.0;
+
+/// A small trend line with no axes: first value to latest, scaled to its own range.
+pub fn sparkline(ui: &mut egui::Ui, values: &[f32]) {
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), SPARK_HEIGHT),
+        egui::Sense::hover(),
+    );
+    if values.len() < 2 || !ui.is_rect_visible(rect) {
+        return;
+    }
+    let (lo, hi) = values
+        .iter()
+        .fold((f32::MAX, f32::MIN), |(lo, hi), &v| (lo.min(v), hi.max(v)));
+    let span = (hi - lo).max(f32::EPSILON);
+    let pad = 4.0;
+    let n = (values.len() - 1) as f32;
+    let pts: Vec<egui::Pos2> = values
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| {
+            egui::pos2(
+                rect.left() + pad + (rect.width() - 2.0 * pad) * i as f32 / n,
+                rect.bottom() - pad - (rect.height() - 2.0 * pad) * (v - lo) / span,
+            )
+        })
+        .collect();
+    let painter = ui.painter();
+    painter.add(egui::Shape::line(pts.clone(), egui::Stroke::new(1.5_f32, ACCENT)));
+    if let Some(&last) = pts.last() {
+        painter.circle_filled(last, 3.0, ACCENT);
+    }
+}

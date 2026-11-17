@@ -3,6 +3,7 @@
 
 pub mod app_icon;
 pub mod graphs;
+pub mod habits;
 pub mod hud;
 pub mod logos;
 pub mod screens;

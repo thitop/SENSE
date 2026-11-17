@@ -224,6 +224,39 @@ fn band_title(b: FlickBand) -> &'static str {
     }
 }
 
+impl Measure {
+    /// What the measure is called when no habit is named.
+    pub fn label(self) -> String {
+        match self {
+            Measure::FlickLanding(b) => format!("{} flick landing", band_title(b)),
+            Measure::FlickStrokes => "Corrections per flick".into(),
+            Measure::MicroOvershoot => "Small-aim overshoot".into(),
+            Measure::MicroCreep => "Small-aim creep".into(),
+            Measure::TrackingLag => "Tracking lag".into(),
+            Measure::TrackingShake => "Tracking shake".into(),
+            Measure::MissLeanFlick => "Flick miss lean".into(),
+            Measure::MissLeanMicro => "Small-aim miss lean".into(),
+        }
+    }
+
+    /// A value of this measure in words, whether or not it is beyond a habit's threshold.
+    pub fn value_text(self, v: f32) -> String {
+        let r = |x: f32| x.round() as i64;
+        match self {
+            Measure::FlickLanding(_) => format!("{}% of the way", r(v * 100.0)),
+            Measure::FlickStrokes => format!("{v:.1} moves per target"),
+            Measure::MicroOvershoot => format!("{}% overshoot", r(v * 100.0)),
+            Measure::MicroCreep => format!("{}% creep", r(v * 100.0)),
+            Measure::TrackingLag if v < 0.0 => format!("{} ms ahead", r(-v)),
+            Measure::TrackingLag => format!("{} ms behind", r(v)),
+            Measure::TrackingShake => format!("{v:.1}\u{d7} target size"),
+            Measure::MissLeanFlick | Measure::MissLeanMicro => {
+                format!("{v:.1}\u{d7} target size off")
+            }
+        }
+    }
+}
+
 impl Habit {
     pub fn measure(self) -> Measure {
         match self {

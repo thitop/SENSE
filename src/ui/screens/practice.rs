@@ -68,6 +68,11 @@ const SCENARIOS: [Scenario; 6] = [
 
 const MIN_CARD_WIDTH: f32 = 280.0;
 
+/// The practice screen's name for a scenario.
+pub fn scenario_name(task: TaskType) -> &'static str {
+    SCENARIOS.iter().find(|s| s.task == task).map_or("Practice", |s| s.name)
+}
+
 pub fn show(ui: &mut egui::Ui, _state: &mut UiState, model: &UiModel, actions: &mut Vec<UiAction>) {
     header(
         ui,

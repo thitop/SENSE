@@ -18,6 +18,10 @@ use aim_trainer::sensitivity::games::GameDatabase;
 use aim_trainer::sensitivity::path_recorder::ShotTrajectoryPattern;
 use aim_trainer::sensitivity::psa::{PsaCalibrator, PsaRoundConclusion};
 use aim_trainer::ui::{render_ui, theme, OnboardingDraft, Screen, UiModel, UiState};
+use aim_trainer::game::tasks::flick::FlickBand;
+use aim_trainer::habits::analysis::{Dir, Habit, HabitFinding};
+use aim_trainer::habits::record::{AimKind, AimLog, PlayContext, TargetRecord, TrackingRecord};
+use aim_trainer::habits::{HabitReport, LeftOutNote};
 use chrono::{Duration, Utc};
 
 const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb; // matches the game's sRGB surface
@@ -109,6 +113,74 @@ fn history() -> SessionHistory {
     h
 }
 
+
+fn flick_log(landing: f32, strokes: u8) -> AimLog {
+    let target = TargetRecord {
+        kind: AimKind::Flick,
+        offset_deg: [10.0, 0.0],
+        radius_deg: 1.0,
+        first_landing: Some(landing),
+        strokes,
+        crossed_center: false,
+        overshoot_deg: 0.0,
+        time_to_hit_ms: None,
+        misses: vec![],
+        band: Some(FlickBand::Far),
+        ctx: PlayContext::default(),
+    };
+    AimLog { targets: vec![target; 14], tracking: vec![] }
+}
+
+fn track_log(lag: f32) -> AimLog {
+    let w = TrackingRecord {
+        mean_along_deg: 0.0,
+        lag_ms: lag,
+        cross_rms_deg: 0.1,
+        mean_speed_deg_s: 10.0,
+        coverage: 1.0,
+        radius_deg: 1.0,
+        horizontal: true,
+        ctx: PlayContext::default(),
+    };
+    AimLog { targets: vec![], tracking: vec![w; 14] }
+}
+
+/// Practice sessions played after the calibration, carrying what the aim did.
+fn with_practice(mut h: SessionHistory) -> SessionHistory {
+    let now = Utc::now();
+    let sessions = [
+        ("p1", "Flick Shot", 34.0, 150, flick_log(0.9, 1)),
+        ("p2", "Flick Shot", 34.5, 100, flick_log(0.86, 1)),
+        ("p3", "Flick Shot", 34.2, 20, flick_log(0.8, 3)),
+        ("p4", "Smooth Tracking", 41.6, 60, track_log(62.0)),
+    ];
+    for (id, task, cm, mins_ago, log) in sessions {
+        let mut r = h.sessions[0].clone();
+        r.session_id = id.into();
+        r.task_type = task.into();
+        r.timestamp = now - Duration::minutes(mins_ago);
+        r.tested_cm_360 = cm;
+        r.aim = Some(log);
+        h.add_session(r);
+    }
+    h
+}
+
+fn findings() -> Vec<HabitFinding> {
+    vec![
+        HabitFinding { habit: Habit::FlickShort(FlickBand::Far), value: 0.82, direction: Some(Dir::Left) },
+        HabitFinding { habit: Habit::TrackingTrails, value: 62.0, direction: None },
+        HabitFinding { habit: Habit::MicroOvershoot, value: 0.41, direction: Some(Dir::SideToSide) },
+    ]
+}
+
+fn with_habits(scene: &mut Scene, report: HabitReport) {
+    scene.history = with_practice(std::mem::take(&mut scene.history));
+    if let Some(c) = scene.profile.last_calibration.as_mut() {
+        c.habits = Some(report);
+    }
+}
+
 fn base(name: &'static str, size: (u32, u32), screen: Screen, calibrated: bool) -> Scene {
     let mut state = UiState::new();
     state.screen = screen;
@@ -148,6 +220,35 @@ fn scenes() -> Vec<Scene> {
     let mut detail_full = base("history-detail-full", (1280, 2200), Screen::History, true);
     detail_full.state.open_session = Some("s0".into());
     v.push(detail_full);
+
+    let mut hab = base("sensitivity-habits", (1280, 1300), Screen::Sensitivity, true);
+    with_habits(&mut hab, HabitReport { findings: findings(), ..Default::default() });
+    v.push(hab);
+
+    let mut hab_small = base("sensitivity-habits-small", (1024, 1300), Screen::Sensitivity, true);
+    with_habits(&mut hab_small, HabitReport { findings: findings(), ..Default::default() });
+    v.push(hab_small);
+
+    let mut hab_none = base("sensitivity-habits-none", (1280, 1300), Screen::Sensitivity, true);
+    with_habits(&mut hab_none, HabitReport::default());
+    v.push(hab_none);
+
+    let mut hab_warm = base("sensitivity-habits-warmup", (1280, 1300), Screen::Sensitivity, true);
+    with_habits(
+        &mut hab_warm,
+        HabitReport {
+            findings: findings()[..1].to_vec(),
+            warming_up: true,
+            left_out: vec![LeftOutNote { test: "Tracking".into(), habit: Habit::TrackingTrails }],
+            ..Default::default()
+        },
+    );
+    v.push(hab_warm);
+
+    let mut hist = base("history-habits", (1280, 1000), Screen::History, true);
+    hist.history = with_practice(std::mem::take(&mut hist.history));
+    hist.state.open_session = Some("p3".into());
+    v.push(hist);
 
     let mut low = base("sensitivity-low-confidence", L, Screen::Sensitivity, true);
     if let Some(c) = low.profile.last_calibration.as_mut() {
