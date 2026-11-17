@@ -59,3 +59,25 @@ pub struct AimLog {
     pub targets: Vec<TargetRecord>,
     pub tracking: Vec<TrackingRecord>,
 }
+
+impl PlayContext {
+    /// The setting being played: `cm_360` is the block's value, `factor` the paired side's
+    /// speed factor (1.0 when there is none). `calibration` is `Some((block, counted))` during
+    /// a calibration run, where only counted segments after the warm-up belong to a block;
+    /// everything else there is warm-up. Practice passes `None`.
+    pub fn for_play(cm_360: f64, factor: f64, calibration: Option<(u8, bool)>) -> Self {
+        let side = if factor < 1.0 {
+            Some(Side::Faster)
+        } else if factor > 1.0 {
+            Some(Side::Slower)
+        } else {
+            None
+        };
+        let (block, warmup) = match calibration {
+            Some((block, true)) => (Some(block), false),
+            Some((_, false)) => (None, true),
+            None => (None, false),
+        };
+        Self { cm_360: (cm_360 * factor) as f32, side, block, warmup }
+    }
+}

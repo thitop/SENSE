@@ -406,6 +406,7 @@ fn session_at(at: chrono::DateTime<Utc>, task: &str) -> SessionRecord {
         tested_cm_360: 40.0,
         tested_dpi: 800.0,
         metrics: AggregatedTaskMetrics::default(),
+        aim: None,
     }
 }
 

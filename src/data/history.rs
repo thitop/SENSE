@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::metrics::AggregatedTaskMetrics;
+use crate::habits::record::AimLog;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SessionRecord {
@@ -12,6 +13,9 @@ pub struct SessionRecord {
     pub tested_cm_360: f64,
     pub tested_dpi: f64,
     pub metrics: AggregatedTaskMetrics,
+    /// What the aim did on each target; absent in sessions saved before aim habits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aim: Option<AimLog>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]

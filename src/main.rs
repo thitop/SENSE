@@ -13,6 +13,8 @@ use engine::{
     audio::{AudioManager, Music, Sfx},
     camera::Camera, input::InputManager, renderer::{self, Renderer}, timing::Timing,
 };
+use habits::recorder::AimRecorder;
+use habits::record::{AimLog, PlayContext};
 use game::{
     calibration::{
         esc_closes_menu, records_calibration_shot, round_change_message, CalibrationProgress,
@@ -67,6 +69,8 @@ struct GameState {
     /// Spots targets that just appeared, to cue the ones outside the view.
     spawn_watcher: SpawnWatcher,
     shot_counter: u32,
+    /// Turns live play into aim records.
+    aim: AimRecorder,
     last_countdown_sec: i32,
 }
 
@@ -146,6 +150,7 @@ impl GameState {
             pending_curve: Vec::new(),
             spawn_watcher: SpawnWatcher::default(),
             shot_counter: 0,
+            aim: AimRecorder::new(),
             last_countdown_sec: 4,
         }
     }
@@ -232,6 +237,7 @@ impl GameState {
         if let Some(m) = self.task_manager.last_completed_metrics.clone() {
             self.calibration_totals.add_segment(m.score, m.duration_secs);
         }
+        self.aim.commit();
         let Some(run) = self.calibration_run.as_mut() else { return };
         let end = run.finish_segment();
         for (cm, accuracy, rt, path) in self.pending_curve.drain(..) {
@@ -258,6 +264,7 @@ impl GameState {
         self.session = PlaySession { mode, paused: false };
         self.current_session_points.clear();
         self.shot_counter = 0;
+        self.aim.reset();
         self.restart_countdown(task);
         self.close_menu();
     }
@@ -279,11 +286,13 @@ impl GameState {
         if self.session.mode == PlayMode::Practice && self.task_manager.abandon() {
             self.current_session_points.clear();
             self.shot_counter = 0;
+            self.aim.reset();
         }
     }
 
     fn after_profile_switch(&mut self) {
         self.end_paused_practice();
+        self.aim.reset();
         if let Some(p) = self.data_manager.profile_manager.get_active_profile().cloned() {
             self.set_dpi(p.dpi);
             self.set_cm_360(p.current_cm_360);
@@ -295,7 +304,14 @@ impl GameState {
         self.ui_state.onboarding = None; // re-created next frame if the new profile needs setup
     }
 
-    fn record_session(&mut self, task_type: String, tested_cm_360: f64, score: u64, duration_secs: f32) {
+    fn record_session(
+        &mut self,
+        task_type: String,
+        tested_cm_360: f64,
+        score: u64,
+        duration_secs: f32,
+        aim: Option<AimLog>,
+    ) {
         let record = SessionRecord {
             session_id: format!("sess_{}", chrono::Utc::now().timestamp_millis()),
             task_type,
@@ -308,6 +324,7 @@ impl GameState {
                 score,
                 0,
             ),
+            aim,
         };
         let _ = self.data_manager.record_session(record);
         self.reload_history();
@@ -320,7 +337,9 @@ impl GameState {
         let result = run.build_result(curve, analyzer.find_optimal_cm_360(), chrono::Utc::now());
         // Every segment, the last one included, was banked when it finished.
         let totals = self.calibration_totals;
-        self.record_session("Calibration".into(), result.cm_360, totals.score, totals.duration_secs);
+        let aim = self.aim.take_log();
+        self.aim.reset();
+        self.record_session("Calibration".into(), result.cm_360, totals.score, totals.duration_secs, Some(aim));
         let profile_id = self.data_manager.profile_manager.active_profile_id.clone().unwrap_or_else(|| "default".into());
         if let Err(e) = self.data_manager.archive_calibration(&profile_id, &result) {
             log::warn!("Could not archive the calibration: {e}");
@@ -363,6 +382,7 @@ impl GameState {
         self.sensitivity_engine.reset_calibration();
         self.calibration_run = None;
         self.pending_curve.clear();
+        self.aim.reset();
         self.session = PlaySession {
             mode: PlayMode::Practice,
             paused: false,
@@ -380,6 +400,7 @@ impl GameState {
             if let Some(run) = self.calibration_run.as_mut() {
                 run.restart_segment();
             }
+            self.aim.discard_pending();
             self.begin_segment(3.0);
         }
         self.close_menu();
@@ -391,6 +412,7 @@ impl GameState {
             UiAction::StartCalibration => {
                 self.sensitivity_engine.reset_calibration();
                 self.calibration_totals = RunTotals::default();
+                self.aim.reset();
                 let seed = chrono::Utc::now().timestamp_millis() as u64;
                 let run = CalibrationRun::new(seed);
                 self.set_cm_360(run.test_cm(self.profile_cm_360()));
@@ -506,6 +528,8 @@ impl GameState {
             let (dx, dy) = self.input.consume_mouse_delta();
             if dx != 0.0 || dy != 0.0 {
                 self.sensitivity_engine.path_recorder.record_sample(dx, dy);
+                let now = self.now();
+                self.aim.push_mouse(now, dx, dy, self.rad_per_count.to_degrees());
                 self.camera.rotate(dx, dy, self.rad_per_count);
             }
         }
@@ -559,8 +583,18 @@ impl GameState {
                 }
             }
 
-            // Tracking windows are diagnostics only now; drain them so they don't pile up.
-            self.task_manager.take_tracking_windows();
+            // Aim habits: the setting being played, the aim on the live target, tracking windows.
+            let calibration = (self.session.mode == PlayMode::Calibration)
+                .then(|| self.calibration_run.as_ref())
+                .flatten()
+                .map(|run| {
+                    let counted = !run.in_warmup() && run.segment().is_some_and(|s| s.counted);
+                    (run.block_number() as u8, counted)
+                });
+            self.aim.set_context(PlayContext::for_play(self.current_cm_360, factor, calibration));
+            let now = self.now();
+            self.aim.track(now, self.camera.position, self.camera.forward(), self.task_manager.current_aim_target());
+            self.aim.push_tracking(&self.task_manager.take_tracking_windows());
             // Pairs of the paired micro and tracking tests finished this tick.
             let pairs = self.task_manager.take_pair_results();
             if self.session.records_calibration() {
@@ -586,7 +620,10 @@ impl GameState {
             {
                 self.audio_manager.play_complete();
                 if let Some(m) = self.task_manager.last_completed_metrics.clone() {
-                    self.record_session(m.task_name, self.current_cm_360, m.score, m.duration_secs);
+                    self.aim.commit();
+                    let aim = self.aim.take_log();
+                    self.aim.reset();
+                    self.record_session(m.task_name, self.current_cm_360, m.score, m.duration_secs, Some(aim));
                 }
                 // Free the cursor so the result card's buttons can be clicked.
                 self.lock_cursor(false);
@@ -604,6 +641,8 @@ impl GameState {
 
     fn on_shot(&mut self, ray: Ray) {
         let hit = self.task_manager.on_click(ray);
+        let now = self.now();
+        let off = self.aim.on_click(now, ray.origin, ray.direction, hit);
         self.shot_counter += 1;
         if hit {
             self.audio_manager.play_hit();
@@ -617,9 +656,15 @@ impl GameState {
                 shot_number: self.shot_counter,
                 hit,
                 reaction_time_ms: rt_ms,
-                offset_from_center_m: 0.1,
-                target_radius_m: 0.35,
-                precision_percent: if hit { 85.0 } else { 0.0 },
+                offset_from_center_m: off.map_or(0.0, |o| o.offset_m),
+                target_radius_m: off.map_or(0.0, |o| o.radius_m),
+                precision_percent: off.map_or(0.0, |o| {
+                    if hit && o.radius_m > 0.0 {
+                        (100.0 * (1.0 - o.offset_m / o.radius_m)).clamp(0.0, 100.0)
+                    } else {
+                        0.0
+                    }
+                }),
                 mouse_distance_px: path.total_mouse_distance,
                 peak_velocity_px_s: path.peak_velocity,
             });

@@ -101,6 +101,7 @@ fn history() -> SessionHistory {
             tested_cm_360: *cm,
             tested_dpi: 800.0,
             metrics: AggregatedTaskMetrics::compute(points, 12_000 - i as u64 * 900, 0),
+            aim: None,
         });
     }
     h
