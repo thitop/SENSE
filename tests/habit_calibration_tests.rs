@@ -279,48 +279,73 @@ fn real_labels_drive_warm_up_and_left_out() {
     assert_eq!(notes[0].test, "Flicking");
 }
 
-#[test]
-fn a_measure_needs_its_own_sixteen_records() {
+/// 42 flicks (every block, both sides) plus `tracking` tracking records in the first groups.
+fn flicks_and_some_tracking(tracking: usize) -> AimLog {
     let mut log = AimLog::default();
     let mut n = 0;
     for_each_group(|c| {
-        log.targets.push(flick(FlickBand::Far, 0.78, 1, c)); // 42 far flicks
-        n += 1;
-        if n <= 12 {
-            log.tracking.push(track(90.0, 0.1, c)); // only 12 tracking records
+        log.targets.push(flick(FlickBand::Far, 0.78, 1, c));
+        if n < tracking {
+            log.tracking.push(track(90.0, 0.1, c));
         }
+        n += 1;
     });
-    let f = calibration_habits(&log, 40.0);
-    assert!(f.iter().any(|f| f.habit == Habit::FlickShort(FlickBand::Far)));
-    assert!(f.iter().all(|f| f.habit != Habit::TrackingTrails), "{f:?}");
+    log
 }
 
 #[test]
-fn micro_overshoot_not_named_from_two_records() {
-    let mut log = AimLog::default();
-    for_each_group(|c| log.targets.push(flick(FlickBand::Far, 1.0, 1, c)));
-    log.targets.push(micro(true, ctx(40.0, 3)));
-    log.targets.push(micro(true, ctx(40.0, 3)));
+fn a_measure_needs_its_own_sixteen_records() {
+    // 15 tracking records spread over blocks 0-2: only the record minimum can reject them.
+    let log = flicks_and_some_tracking(15);
     let f = calibration_habits(&log, 40.0);
-    assert!(f.iter().all(|f| f.habit != Habit::MicroOvershoot), "{f:?}");
+    assert!(f.iter().any(|f| f.habit == Habit::FlickShort(FlickBand::Far)));
+    assert!(f.iter().all(|f| f.habit != Habit::TrackingTrails), "{f:?}");
+    let f = calibration_habits(&flicks_and_some_tracking(18), 40.0);
+    assert!(f.iter().any(|f| f.habit == Habit::TrackingTrails), "{f:?}");
+}
+
+#[test]
+fn micro_overshoot_not_named_from_too_few_records() {
+    let few = |count: usize| {
+        let mut log = AimLog::default();
+        let mut n = 0;
+        for_each_group(|c| {
+            log.targets.push(flick(FlickBand::Far, 1.0, 1, c));
+            if n < count {
+                log.targets.push(micro(true, c));
+            }
+            n += 1;
+        });
+        log
+    };
+    // Two records in one block, and 15 records over three blocks.
+    for count in [2, 15] {
+        let f = calibration_habits(&few(count), 40.0);
+        assert!(f.iter().all(|f| f.habit != Habit::MicroOvershoot), "{count}: {f:?}");
+    }
+    let f = calibration_habits(&few(18), 40.0);
+    assert!(f.iter().any(|f| f.habit == Habit::MicroOvershoot), "{f:?}");
 }
 
 #[test]
 fn miss_lean_needs_ten_misses() {
-    let mut log = AimLog::default();
-    let mut k = 0;
-    for_each_group(|c| {
-        let mut r = flick(FlickBand::Far, 1.0, 1, c);
-        if k < 3 {
-            r.misses = vec![[3.0, 0.0], [3.0, 0.0]]; // 6 misses, all leaning
-        }
-        k += 1;
-        log.targets.push(r);
-    });
-    assert!(calibration_habits(&log, 40.0).iter().all(|f| f.habit != Habit::MissLeanFlick));
-    let mut log2 = log.clone();
-    for r in log2.targets.iter_mut().take(14) {
-        r.misses = vec![[3.0, 0.0], [3.0, 0.0]]; // 28 misses over three blocks
-    }
-    assert!(calibration_habits(&log2, 40.0).iter().any(|f| f.habit == Habit::MissLeanFlick));
+    // Three misses on one record in each of `records` blocks (records 0, 6, 12, 18 are in
+    // blocks 0-3): 9 misses over three blocks, then 12 over four.
+    let lean = |records: usize| {
+        let mut log = AimLog::default();
+        let mut k = 0;
+        for_each_group(|c| {
+            let mut r = flick(FlickBand::Far, 1.0, 1, c);
+            if k % 6 == 0 && k / 6 < records {
+                r.misses = vec![[3.0, 0.0]; 3];
+            }
+            k += 1;
+            log.targets.push(r);
+        });
+        log
+    };
+    let f = calibration_habits(&lean(3), 40.0);
+    assert!(f.iter().all(|f| f.habit != Habit::MissLeanFlick), "{f:?}");
+    let f = calibration_habits(&lean(4), 40.0);
+    assert!(f.iter().any(|f| f.habit == Habit::MissLeanFlick), "{f:?}");
 }
