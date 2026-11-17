@@ -16,6 +16,9 @@ pub struct SessionRecord {
     /// What the aim did on each target; absent in sessions saved before aim habits.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aim: Option<AimLog>,
+    /// The habits a calibration run found; absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub habits: Option<crate::habits::HabitReport>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]

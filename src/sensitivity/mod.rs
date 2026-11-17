@@ -123,6 +123,7 @@ impl SensitivityEngine {
             pooled_runs: 1,
             no_answer: false,
             runs_disagree: false,
+            habits: None,
         }
     }
 

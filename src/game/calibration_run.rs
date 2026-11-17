@@ -254,6 +254,7 @@ impl CalibrationRun {
             pooled_runs: 1,
             no_answer: s.recommendation(None).map_or(true, |r| !is_answer(r.neutral.rel_uncertainty)),
             runs_disagree: false,
+            habits: None,
         }
     }
 

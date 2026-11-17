@@ -69,6 +69,7 @@ fn profile(calibrated: bool) -> PlayerProfile {
             pooled_runs: 1,
             no_answer: false,
             runs_disagree: false,
+            habits: None,
         });
     }
     p
@@ -102,6 +103,7 @@ fn history() -> SessionHistory {
             tested_dpi: 800.0,
             metrics: AggregatedTaskMetrics::compute(points, 12_000 - i as u64 * 900, 0),
             aim: None,
+            habits: None,
         });
     }
     h

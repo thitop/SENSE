@@ -39,6 +39,9 @@ pub struct CalibrationResult {
     /// Recent runs couldn't be fitted together; the numbers are this run's alone.
     #[serde(default)]
     pub runs_disagree: bool,
+    /// Aim habits found in this run's play; absent in older results.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub habits: Option<crate::habits::HabitReport>,
 }
 
 fn one_run() -> usize {

@@ -24,6 +24,7 @@ fn session(aim: Option<AimLog>) -> SessionRecord {
         tested_dpi: 800.0,
         metrics: AggregatedTaskMetrics::default(),
         aim,
+        habits: None,
     }
 }
 

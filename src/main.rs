@@ -312,6 +312,7 @@ impl GameState {
         score: u64,
         duration_secs: f32,
         aim: Option<AimLog>,
+        habits: Option<habits::HabitReport>,
     ) {
         let record = SessionRecord {
             session_id: format!("sess_{}", chrono::Utc::now().timestamp_millis()),
@@ -326,6 +327,7 @@ impl GameState {
                 0,
             ),
             aim,
+            habits,
         };
         let _ = self.data_manager.record_session(record);
         self.reload_history();
@@ -335,12 +337,15 @@ impl GameState {
         let Some(run) = self.calibration_run.take() else { return };
         let analyzer = &self.sensitivity_engine.analyzer;
         let curve = analyzer.samples.iter().map(|s| (s.cm_360, s.composite_score)).collect();
-        let result = run.build_result(curve, analyzer.find_optimal_cm_360(), chrono::Utc::now());
+        let mut result = run.build_result(curve, analyzer.find_optimal_cm_360(), chrono::Utc::now());
         // Every segment, the last one included, was banked when it finished.
         let totals = self.calibration_totals;
         let aim = self.aim.take_log();
         self.aim.reset();
-        self.record_session("Calibration".into(), result.cm_360, totals.score, totals.duration_secs, Some(aim));
+        // Before pooling: the report reads this run's own answer and left-out tests.
+        let report = habits::trust::habit_report(&aim, &result);
+        result.habits = Some(report.clone());
+        self.record_session("Calibration".into(), result.cm_360, totals.score, totals.duration_secs, Some(aim), Some(report));
         let profile_id = self.data_manager.profile_manager.active_profile_id.clone().unwrap_or_else(|| "default".into());
         if let Err(e) = self.data_manager.archive_calibration(&profile_id, &result) {
             log::warn!("Could not archive the calibration: {e}");
@@ -348,7 +353,7 @@ impl GameState {
         // Pool with recent runs at this DPI: one run is ±13–19%, and runs agree within that.
         let now = chrono::Utc::now();
         let record = run.run_record(self.player_dpi, result.at);
-        let mut result = result;
+
         self.update_profile(|p| {
             p.recent_runs.push(record);
             pooling::keep_recent(&mut p.recent_runs, now);
@@ -639,7 +644,7 @@ impl GameState {
                     self.aim.commit();
                     let aim = self.aim.take_log();
                     self.aim.reset();
-                    self.record_session(m.task_name, self.current_cm_360, m.score, m.duration_secs, Some(aim));
+                    self.record_session(m.task_name, self.current_cm_360, m.score, m.duration_secs, Some(aim), None);
                 }
                 // Free the cursor so the result card's buttons can be clicked.
                 self.lock_cursor(false);

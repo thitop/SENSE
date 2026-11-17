@@ -409,3 +409,79 @@ pub fn worst_direction(
     }
     (beyond.len() == 1 && clean >= 1).then(|| beyond[0])
 }
+
+/// A habit named from a calibration run, with the value it has at the run's result.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct HabitFinding {
+    pub habit: Habit,
+    pub value: f32,
+    pub direction: Option<Dir>,
+}
+
+/// Fewest counted records, and distinct blocks, a calibration needs before habits are named.
+const CAL_MIN_RECORDS: usize = 16;
+const CAL_MIN_BLOCKS: usize = 3;
+const CAL_MAX_FINDINGS: usize = 3;
+
+fn counted(c: &PlayContext) -> bool {
+    c.block.is_some() && !c.warmup
+}
+
+fn cm_key(cm: f32) -> i64 {
+    (cm as f64 * 100.0).round() as i64
+}
+
+/// The habits a calibration run shows at its result: each measure is fitted against ln(cm)
+/// over the sensitivities played, and read at `result_cm`, so a habit that only appears away
+/// from the result (a lean that belongs to the sensitivity) is not named.
+pub fn calibration_habits(log: &AimLog, result_cm: f64) -> Vec<HabitFinding> {
+    use std::collections::BTreeSet;
+    let mut blocks = BTreeSet::new();
+    let mut cms = BTreeSet::new();
+    let mut records = 0usize;
+    for c in log.targets.iter().map(|r| &r.ctx).chain(log.tracking.iter().map(|r| &r.ctx)) {
+        if counted(c) {
+            records += 1;
+            blocks.insert(c.block);
+            if c.cm_360.is_finite() && c.cm_360 > 0.0 {
+                cms.insert(cm_key(c.cm_360));
+            }
+        }
+    }
+    if records < CAL_MIN_RECORDS || blocks.len() < CAL_MIN_BLOCKS || !(result_cm > 0.0) {
+        return Vec::new();
+    }
+    let at = result_cm.ln();
+    let mut found: Vec<(f32, HabitFinding)> = Vec::new();
+    for measure in Measure::ALL {
+        let mut pts: Vec<(f64, f64, f64)> = Vec::new(); // (ln cm, statistic, weight)
+        for &key in &cms {
+            let stat = measure.statistic(log, |c| counted(c) && cm_key(c.cm_360) == key);
+            if let Some((v, n)) = stat {
+                if n >= 2 {
+                    pts.push(((key as f64 / 100.0).ln(), v as f64, n as f64));
+                }
+            }
+        }
+        if pts.is_empty() {
+            continue;
+        }
+        let w: f64 = pts.iter().map(|p| p.2).sum();
+        let mx = pts.iter().map(|p| p.0 * p.2).sum::<f64>() / w;
+        let my = pts.iter().map(|p| p.1 * p.2).sum::<f64>() / w;
+        let sxx: f64 = pts.iter().map(|p| p.2 * (p.0 - mx) * (p.0 - mx)).sum();
+        let sxy: f64 = pts.iter().map(|p| p.2 * (p.0 - mx) * (p.1 - my)).sum();
+        let value = if sxx > 1e-9 { my + sxy / sxx * (at - mx) } else { my } as f32;
+        if !value.is_finite() {
+            continue;
+        }
+        for &habit in measure.habits() {
+            if let Some(sev) = habit.severity(value) {
+                let direction = worst_direction(habit, log, counted);
+                found.push((sev, HabitFinding { habit, value, direction }));
+            }
+        }
+    }
+    found.sort_by(|a, b| b.0.total_cmp(&a.0));
+    found.into_iter().take(CAL_MAX_FINDINGS).map(|(_, f)| f).collect()
+}

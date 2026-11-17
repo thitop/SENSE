@@ -46,6 +46,7 @@ fn calibration_result_round_trips() {
         pooled_runs: 1,
         no_answer: false,
         runs_disagree: false,
+        habits: None,
     });
 
     let json = serde_json::to_string(&p).unwrap();
@@ -407,6 +408,7 @@ fn session_at(at: chrono::DateTime<Utc>, task: &str) -> SessionRecord {
         tested_dpi: 800.0,
         metrics: AggregatedTaskMetrics::default(),
         aim: None,
+        habits: None,
     }
 }
 
@@ -432,6 +434,7 @@ fn sample_calibration() -> CalibrationResult {
         pooled_runs: 1,
         no_answer: false,
         runs_disagree: false,
+        habits: None,
     }
 }
 
@@ -898,6 +901,7 @@ fn score_graph_marks_the_result() {
         pooled_runs: 3,
         no_answer: false,
         runs_disagree: false,
+        habits: None,
     };
     assert_eq!(curve_marker(&cal), Some(39.6));
     cal.no_answer = true;
