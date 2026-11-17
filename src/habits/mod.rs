@@ -5,6 +5,7 @@ pub mod recorder;
 pub mod strokes;
 pub mod analysis;
 pub mod trust;
+pub mod trend;
 
 pub use analysis::HabitFinding;
 pub use trust::{HabitReport, LeftOutNote};
