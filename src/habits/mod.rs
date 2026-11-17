@@ -3,3 +3,4 @@
 pub mod record;
 pub mod recorder;
 pub mod strokes;
+pub mod analysis;
