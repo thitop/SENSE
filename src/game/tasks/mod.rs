@@ -103,12 +103,28 @@ pub enum TaskType {
     Calibration,
 }
 
+impl TaskType {
+    /// The name a task of this type records its sessions under (`Task::name`). The one place
+    /// these strings live.
+    pub fn task_name(self) -> &'static str {
+        match self {
+            TaskType::Flick => "Flick Shot",
+            TaskType::Tracking => "Smooth Tracking",
+            TaskType::Switching => "Target Switching",
+            TaskType::MicroAdjust => "Micro-Adjustment",
+            TaskType::Speed => "Speed vs Precision",
+            TaskType::MovingTargets => "Moving Targets",
+            TaskType::Calibration => "Calibration",
+        }
+    }
+}
+
 /// Flick targets with no target limit, shown as "Calibration".
 struct CalibrationTask(FlickTask);
 
 impl Task for CalibrationTask {
     fn name(&self) -> &'static str {
-        "Calibration"
+        TaskType::Calibration.task_name()
     }
     fn description(&self) -> &'static str {
         "Shoot targets while the sensitivity is narrowed down round by round."

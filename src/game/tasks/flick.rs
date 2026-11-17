@@ -298,7 +298,7 @@ impl FlickTask {
 
 impl Task for FlickTask {
     fn name(&self) -> &'static str {
-        "Flick Shot"
+        super::TaskType::Flick.task_name()
     }
 
     fn description(&self) -> &'static str {

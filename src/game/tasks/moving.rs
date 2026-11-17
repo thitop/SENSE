@@ -108,7 +108,7 @@ impl MovingTargetTask {
 
 impl Task for MovingTargetTask {
     fn name(&self) -> &'static str {
-        "Moving Targets"
+        super::TaskType::MovingTargets.task_name()
     }
 
     fn description(&self) -> &'static str {

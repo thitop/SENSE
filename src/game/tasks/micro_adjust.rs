@@ -143,7 +143,7 @@ impl MicroAdjustTask {
 
 impl Task for MicroAdjustTask {
     fn name(&self) -> &'static str {
-        "Micro-Adjustment"
+        super::TaskType::MicroAdjust.task_name()
     }
 
     fn description(&self) -> &'static str {

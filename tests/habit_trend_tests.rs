@@ -79,11 +79,11 @@ const FAR: Habit = Habit::FlickShort(FlickBand::Far);
 #[test]
 fn progress_counts_sessions_after_calibration_near_result() {
     let h = hist(vec![
-        rec("a", "Flick", at(5), 40.0, Some(flick_log(0.7))), // before since
-        rec("b", "Flick", at(12), 44.0, Some(flick_log(0.8))), // +10%
-        rec("c", "Flick", at(11), 36.0, Some(flick_log(0.75))), // -10%
-        rec("d", "Flick", at(13), 52.0, Some(flick_log(0.5))), // +30%
-        rec("e", "Flick", at(14), 40.0, Some(flick_log(0.9))),
+        rec("a", "Flick Shot", at(5), 40.0, Some(flick_log(0.7))), // before since
+        rec("b", "Flick Shot", at(12), 44.0, Some(flick_log(0.8))), // +10%
+        rec("c", "Flick Shot", at(11), 36.0, Some(flick_log(0.75))), // -10%
+        rec("d", "Flick Shot", at(13), 52.0, Some(flick_log(0.5))), // +30%
+        rec("e", "Flick Shot", at(14), 40.0, Some(flick_log(0.9))),
         rec("cal", "Calibration", at(15), 40.0, Some(flick_log(0.1))),
     ]);
     let p = progress(&h, FAR, at(10), 40.0);
@@ -93,15 +93,15 @@ fn progress_counts_sessions_after_calibration_near_result() {
     assert!((p.points[1] - 0.8).abs() < 1e-4);
     assert!((p.points[2] - 0.9).abs() < 1e-4);
     // strictly after: a session exactly at `since` does not count
-    let h2 = hist(vec![rec("x", "Flick", at(10), 40.0, Some(flick_log(0.8)))]);
+    let h2 = hist(vec![rec("x", "Flick Shot", at(10), 40.0, Some(flick_log(0.8)))]);
     assert!(progress(&h2, FAR, at(10), 40.0).points.is_empty());
 }
 
 #[test]
 fn practising_elsewhere_when_only_far_sessions() {
     let h = hist(vec![
-        rec("a", "Flick", at(12), 60.0, Some(flick_log(0.8))),
-        rec("b", "Flick", at(13), 20.0, Some(flick_log(0.8))),
+        rec("a", "Flick Shot", at(12), 60.0, Some(flick_log(0.8))),
+        rec("b", "Flick Shot", at(13), 20.0, Some(flick_log(0.8))),
     ]);
     let p = progress(&h, FAR, at(10), 40.0);
     assert!(p.points.is_empty());
@@ -109,7 +109,7 @@ fn practising_elsewhere_when_only_far_sessions() {
     let none = progress(&hist(vec![]), FAR, at(10), 40.0);
     assert!(none.points.is_empty() && !none.practising_elsewhere);
     // a far session without a value for the measure does not count
-    let h3 = hist(vec![rec("a", "Flick", at(12), 60.0, Some(AimLog::default()))]);
+    let h3 = hist(vec![rec("a", "Flick Shot", at(12), 60.0, Some(AimLog::default()))]);
     assert!(!progress(&h3, FAR, at(10), 40.0).practising_elsewhere);
 }
 
@@ -119,7 +119,7 @@ fn progress_keeps_last_ten() {
         (0..15)
             .rev() // insertion order is not time order
             .map(|i| {
-                rec(&i.to_string(), "Flick", at(11 + i), 40.0, Some(flick_log(0.5 + i as f32 * 0.01)))
+                rec(&i.to_string(), "Flick Shot", at(11 + i), 40.0, Some(flick_log(0.5 + i as f32 * 0.01)))
             })
             .collect(),
     );
@@ -133,11 +133,11 @@ fn progress_keeps_last_ten() {
 fn rows_compare_with_previous_five_same_scenario() {
     let mut s = vec![];
     for i in 0..6 {
-        s.push(rec(&format!("f{i}"), "Flick", at(i), 40.0, Some(flick_log(0.60 + i as f32 * 0.02))));
+        s.push(rec(&format!("f{i}"), "Flick Shot", at(i), 40.0, Some(flick_log(0.60 + i as f32 * 0.02))));
     }
-    s.push(rec("t", "Tracking", at(6), 40.0, Some(flick_log(0.1))));
-    s.push(rec("now", "Flick", at(7), 40.0, Some(flick_log(0.9))));
-    s.push(rec("later", "Flick", at(8), 40.0, Some(flick_log(0.99))));
+    s.push(rec("t", "Smooth Tracking", at(6), 40.0, Some(flick_log(0.1))));
+    s.push(rec("now", "Flick Shot", at(7), 40.0, Some(flick_log(0.9))));
+    s.push(rec("later", "Flick Shot", at(8), 40.0, Some(flick_log(0.99))));
     let h = hist(s);
     let now = h.sessions.iter().find(|r| r.session_id == "now").unwrap();
     let rows = session_rows(&h, now);
@@ -150,7 +150,7 @@ fn rows_compare_with_previous_five_same_scenario() {
 
 #[test]
 fn no_previous_means_no_change() {
-    let h = hist(vec![rec("only", "Flick", at(1), 40.0, Some(flick_log(0.9)))]);
+    let h = hist(vec![rec("only", "Flick Shot", at(1), 40.0, Some(flick_log(0.9)))]);
     let rows = session_rows(&h, &h.sessions[0]);
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].previous_mean, None);
@@ -195,13 +195,26 @@ fn zero_previous_badness_is_same_only_when_equal() {
 #[test]
 fn sessions_without_aim_are_skipped() {
     let h = hist(vec![
-        rec("a", "Flick", at(12), 40.0, None),
-        rec("b", "Flick", at(13), 40.0, Some(flick_log(0.8))),
-        rec("c", "Flick", at(14), 40.0, None),
+        rec("a", "Flick Shot", at(12), 40.0, None),
+        rec("b", "Flick Shot", at(13), 40.0, Some(flick_log(0.8))),
+        rec("c", "Flick Shot", at(14), 40.0, None),
     ]);
     let p = progress(&h, FAR, at(10), 40.0);
     assert_eq!(p.points.len(), 1);
     assert!(session_rows(&h, &h.sessions[0]).is_empty());
     let rows = session_rows(&h, &h.sessions[1]);
     assert!(rows.iter().all(|r| r.previous_mean.is_none()));
+}
+
+#[test]
+fn progress_counts_only_the_scenario_that_practises_the_habit() {
+    let h = hist(vec![
+        rec("f", "Flick Shot", at(12), 40.0, Some(flick_log(0.8))),
+        rec("sw", "Target Switching", at(13), 40.0, Some(flick_log(0.3))),
+        rec("sp", "Speed vs Precision", at(14), 40.0, Some(flick_log(0.2))),
+    ]);
+    let p = progress(&h, FAR, at(10), 40.0);
+    assert_eq!(p.points.len(), 1);
+    assert!((p.points[0] - 0.8).abs() < 1e-4);
+    assert!(!p.practising_elsewhere);
 }

@@ -66,7 +66,7 @@ impl SpeedTask {
 
 impl Task for SpeedTask {
     fn name(&self) -> &'static str {
-        "Speed vs Precision"
+        super::TaskType::Speed.task_name()
     }
 
     fn description(&self) -> &'static str {

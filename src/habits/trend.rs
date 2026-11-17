@@ -6,7 +6,6 @@ use chrono::{DateTime, Utc};
 use crate::data::history::{SessionHistory, SessionRecord};
 use crate::habits::analysis::{session_values, Habit, MeasureValue};
 
-const CALIBRATION: &str = "Calibration";
 const MAX_POINTS: usize = 10;
 const PREVIOUS_SESSIONS: usize = 5;
 const SAME_WITHIN: f32 = 0.10;
@@ -42,11 +41,14 @@ pub fn progress(
     result_cm: f64,
 ) -> Progress {
     let measure = habit.measure();
+    // Only sessions of the scenario that practises this habit: Switching and Speed also
+    // record flicks, but they are not the practice the card offers.
+    let practice = habit.practice().task_name();
     let band = 1.12f64.ln();
     let mut after: Vec<&SessionRecord> = history
         .sessions
         .iter()
-        .filter(|s| s.task_type != CALIBRATION && s.timestamp > since && s.aim.is_some())
+        .filter(|s| s.task_type == practice && s.timestamp > since && s.aim.is_some())
         .collect();
     after.sort_by_key(|s| s.timestamp);
 

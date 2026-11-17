@@ -165,7 +165,7 @@ impl TrackingTask {
 
 impl Task for TrackingTask {
     fn name(&self) -> &'static str {
-        "Smooth Tracking"
+        super::TaskType::Tracking.task_name()
     }
 
     fn description(&self) -> &'static str {

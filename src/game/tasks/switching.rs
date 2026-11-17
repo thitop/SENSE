@@ -70,7 +70,7 @@ impl SwitchingTask {
 
 impl Task for SwitchingTask {
     fn name(&self) -> &'static str {
-        "Target Switching"
+        super::TaskType::Switching.task_name()
     }
 
     fn description(&self) -> &'static str {
