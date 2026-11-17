@@ -27,6 +27,11 @@ pub struct AggregatedTaskMetrics {
 }
 
 impl AggregatedTaskMetrics {
+    /// Whether any hit has a measured offset from the target's centre.
+    pub fn has_offsets(&self) -> bool {
+        self.points.iter().any(|p| p.hit && p.target_radius_m > 0.0)
+    }
+
     pub fn compute(points: Vec<MetricPoint>, total_score: u64, max_streak: u32) -> Self {
         let total_shots = points.len() as u32;
         let hits = points.iter().filter(|p| p.hit).count() as u32;
@@ -56,15 +61,16 @@ impl AggregatedTaskMetrics {
             0.0
         };
 
-        let avg_offset_m = if hits > 0 {
-            points
-                .iter()
-                .filter(|p| p.hit)
-                .map(|p| p.offset_from_center_m)
-                .sum::<f32>()
-                / hits as f32
-        } else {
+        // Hits with no measured offset (tracking clicks) carry radius 0; leave them out.
+        let offsets: Vec<f32> = points
+            .iter()
+            .filter(|p| p.hit && p.target_radius_m > 0.0)
+            .map(|p| p.offset_from_center_m)
+            .collect();
+        let avg_offset_m = if offsets.is_empty() {
             0.0
+        } else {
+            offsets.iter().sum::<f32>() / offsets.len() as f32
         };
 
         Self {

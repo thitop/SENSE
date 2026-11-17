@@ -96,6 +96,7 @@ pub fn detail_stats(s: &SessionRecord) -> Vec<DetailStat> {
     let m = &s.metrics;
     let shots = m.total_shots > 0;
     let hit = m.hits > 0;
+    let offsets = m.has_offsets();
     let dash = || "—".to_string();
     vec![
         stat("Score", m.total_score.to_string(), None, s.task_type.clone()),
@@ -122,8 +123,8 @@ pub fn detail_stats(s: &SessionRecord) -> Vec<DetailStat> {
         stat("Shots", m.total_shots.to_string(), None, format!("{} missed", m.misses)),
         stat(
             "Avg. offset",
-            if hit { format!("{:.1}", m.avg_offset_m * 100.0) } else { dash() },
-            hit.then_some("cm"),
+            if offsets { format!("{:.1}", m.avg_offset_m * 100.0) } else { dash() },
+            offsets.then_some("cm"),
             "From target centre on hits".into(),
         ),
     ]

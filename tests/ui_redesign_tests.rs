@@ -990,3 +990,34 @@ fn click_labelled(state: &mut UiState, model: &UiModel, label: &str) -> Vec<aim_
     });
     actions
 }
+
+#[test]
+fn hits_without_an_offset_do_not_average_in_a_zero() {
+    use aim_trainer::data::MetricPoint;
+    use aim_trainer::ui::screens::history::detail_stats;
+    let point = |hit: bool, offset: f32, radius: f32| MetricPoint {
+        shot_number: 1,
+        hit,
+        reaction_time_ms: 100.0,
+        offset_from_center_m: offset,
+        target_radius_m: radius,
+        precision_percent: 0.0,
+        mouse_distance_px: 0.0,
+        peak_velocity_px_s: 0.0,
+    };
+    // Two hits with an offset (0.02, 0.04 m) and one tracking click without one.
+    let m = AggregatedTaskMetrics::compute(
+        vec![point(true, 0.02, 0.05), point(true, 0.04, 0.05), point(true, 0.0, 0.0)],
+        0,
+        0,
+    );
+    assert!((m.avg_offset_m - 0.03).abs() < 1e-6, "{}", m.avg_offset_m);
+
+    // Only clicks without an offset: nothing measured, so the tile shows a dash.
+    let mut s = session_at(Utc::now(), "Smooth Tracking");
+    s.metrics = AggregatedTaskMetrics::compute(vec![point(true, 0.0, 0.0)], 0, 1);
+    let stats = detail_stats(&s);
+    let t = stats.iter().find(|st| st.label == "Avg. offset").unwrap();
+    assert_eq!(t.value, "—");
+    assert_eq!(t.unit, None);
+}
