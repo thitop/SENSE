@@ -459,7 +459,7 @@ pub struct HabitFinding {
 const CAL_MIN_RECORDS: usize = 16;
 const CAL_MIN_BLOCKS: usize = 3;
 /// How many habits a calibration shows.
-pub const CAL_MAX_FINDINGS: usize = 3;
+const CAL_MAX_FINDINGS: usize = 3;
 
 fn counted(c: &PlayContext) -> bool {
     c.block.is_some() && !c.warmup
