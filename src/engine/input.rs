@@ -1,15 +1,9 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use winit::window::Window;
+//! Mouse input state. Movement arrives as winit `DeviceEvent::MouseMotion`, which on Windows
+//! is raw `WM_INPUT` (no pointer acceleration). Don't call `RegisterRawInputDevices` for the
+//! mouse here: it replaces winit's registration and motion events stop arriving.
 
-#[cfg(target_os = "windows")]
-use windows::Win32::Foundation::{HWND, RECT};
-#[cfg(target_os = "windows")]
-use windows::Win32::UI::Input::*;
-#[cfg(target_os = "windows")]
-use windows::Win32::UI::WindowsAndMessaging::{ClipCursor, GetWindowRect};
-
-static RAW_INPUT_REGISTERED: AtomicBool = AtomicBool::new(false);
+use winit::dpi::PhysicalPosition;
+use winit::window::{CursorGrabMode, Window};
 
 pub struct InputManager {
     is_cursor_locked: bool,
@@ -30,66 +24,33 @@ impl InputManager {
         }
     }
 
-    /// Register Windows Raw Input device for the mouse to bypass pointer precision/accel
-    pub fn register_raw_input(&mut self, window: &Window) {
-        #[cfg(target_os = "windows")]
-        {
-            if RAW_INPUT_REGISTERED.load(Ordering::SeqCst) {
-                return;
-            }
-
-            let hwnd = match window.window_handle() {
-                Ok(handle) => match handle.as_raw() {
-                    RawWindowHandle::Win32(w) => HWND(w.hwnd.get() as _),
-                    _ => return,
-                },
-                Err(_) => return,
-            };
-
-            // Usage Page 1 (Generic Desktop), Usage 2 (Mouse)
-            let device = RAWINPUTDEVICE {
-                usUsagePage: 0x01,
-                usUsage: 0x02,
-                dwFlags: RIDEV_INPUTSINK,
-                hwndTarget: hwnd,
-            };
-
-            unsafe {
-                if RegisterRawInputDevices(&[device], std::mem::size_of::<RAWINPUTDEVICE>() as u32).is_ok() {
-                    log::info!("Registered Windows Raw Input mouse device successfully");
-                    RAW_INPUT_REGISTERED.store(true, Ordering::SeqCst);
-                } else {
-                    log::warn!("Failed to register Windows Raw Input mouse device");
-                }
-            }
-        }
-    }
-
-    /// Lock mouse cursor to the center of window and hide it for true FPS aim control
+    /// Lock the cursor to the centre of the window and hide it for FPS aiming.
+    /// While locked, the cursor can't drift over the title bar or out of the window, so every
+    /// click lands in the game. winit re-applies the lock after resizes and focus changes.
+    /// The UI must not show the cursor again while locked (see `GameState::render`).
     pub fn set_cursor_locked(&mut self, window: &Window, locked: bool) {
         self.is_cursor_locked = locked;
-        window.set_cursor_visible(!locked);
-
-        #[cfg(target_os = "windows")]
-        {
-            if locked {
-                // Trap cursor inside window rectangle
-                if let Ok(handle) = window.window_handle() {
-                    if let RawWindowHandle::Win32(w) = handle.as_raw() {
-                        let hwnd = HWND(w.hwnd.get() as _);
-                        unsafe {
-                            let mut rect = RECT::default();
-                            if GetWindowRect(hwnd, &mut rect).is_ok() {
-                                let _ = ClipCursor(Some(&rect));
-                            }
-                        }
-                    }
-                }
-            } else {
-                unsafe {
-                    let _ = ClipCursor(None);
-                }
+        if locked {
+            // Locked pins the cursor where it is (on Windows), so park it in the centre first.
+            // An existing lock would keep the cursor from moving, so release it before.
+            // Where Locked isn't supported, confine it to the window instead.
+            let _ = window.set_cursor_grab(CursorGrabMode::None);
+            let size = window.inner_size();
+            let _ = window.set_cursor_position(PhysicalPosition::new(size.width / 2, size.height / 2));
+            if window.set_cursor_grab(CursorGrabMode::Locked).is_err() {
+                let _ = window.set_cursor_grab(CursorGrabMode::Confined);
             }
+        } else {
+            let _ = window.set_cursor_grab(CursorGrabMode::None);
+        }
+        window.set_cursor_visible(!locked);
+    }
+
+    /// Move a locked cursor back to the window centre, e.g. after the window was resized or
+    /// moved, or got focus back.
+    pub fn recenter_if_locked(&mut self, window: &Window) {
+        if self.is_cursor_locked {
+            self.set_cursor_locked(window, true);
         }
     }
 

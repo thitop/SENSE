@@ -11,6 +11,8 @@ use aim_trainer::data::{
     SessionHistory, SessionRecord,
 };
 use aim_trainer::game::calibration::{CalibrationProgress, PlayMode, PlaySession};
+use aim_trainer::game::calibration_run::CalibrationRun;
+use aim_trainer::sensitivity::combiner::TestKind;
 use aim_trainer::game::tasks::{TaskMetrics, TaskState};
 use aim_trainer::sensitivity::games::GameDatabase;
 use aim_trainer::sensitivity::path_recorder::ShotTrajectoryPattern;
@@ -31,6 +33,7 @@ struct Scene {
     calibration: Option<CalibrationProgress>,
     metrics: Option<TaskMetrics>,
     task_name: &'static str,
+    offscreen: Vec<glam::Vec2>,
 }
 
 fn profile(calibrated: bool) -> PlayerProfile {
@@ -62,6 +65,10 @@ fn profile(calibrated: bool) -> PlayerProfile {
                 })
                 .collect(),
             at: Utc::now() - Duration::hours(3),
+            diagnostics: None,
+            pooled_runs: 1,
+            no_answer: false,
+            runs_disagree: false,
         });
     }
     p
@@ -113,6 +120,7 @@ fn base(name: &'static str, size: (u32, u32), screen: Screen, calibrated: bool) 
         calibration: None,
         metrics: None,
         task_name: "Flick Shot",
+        offscreen: Vec::new(),
     }
 }
 
@@ -129,6 +137,49 @@ fn scenes() -> Vec<Scene> {
         base("history", L, Screen::History, true),
         base("settings", L, Screen::Settings, true),
     ];
+
+    let mut detail = base("history-detail", L, Screen::History, true);
+    detail.state.open_session = Some("s0".into());
+    v.push(detail);
+    // Tall enough to show the per-game values below the graph.
+    let mut detail_full = base("history-detail-full", (1280, 2200), Screen::History, true);
+    detail_full.state.open_session = Some("s0".into());
+    v.push(detail_full);
+
+    let mut low = base("sensitivity-low-confidence", L, Screen::Sensitivity, true);
+    if let Some(c) = low.profile.last_calibration.as_mut() {
+        c.cm_360 = 31.8;
+        c.confidence = 0.2;
+        let est = |test: &str, cm_360: f64, rel_uncertainty: f64| aim_trainer::data::EstimateRecord {
+            test: test.into(),
+            cm_360,
+            rel_uncertainty,
+        };
+        c.diagnostics = Some(aim_trainer::data::RunDiagnostics {
+            estimates: vec![
+                est("Flicking", 32.4, 0.12),
+                est("Micro-adjustment", 30.9, 0.21),
+                est("Tracking", 14.2, 0.30),
+                est("Flick far", 33.0, 0.25),
+            ],
+            left_out: vec!["Tracking".into()],
+            ..Default::default()
+        });
+    }
+    v.push(low);
+
+    let mut pooled = base("sensitivity-pooled", L, Screen::Sensitivity, true);
+    if let Some(c) = pooled.profile.last_calibration.as_mut() {
+        c.pooled_runs = 3;
+    }
+    v.push(pooled);
+
+    let mut none = base("sensitivity-no-answer", L, Screen::Sensitivity, true);
+    if let Some(c) = none.profile.last_calibration.as_mut() {
+        c.no_answer = true;
+        c.confidence = 0.3;
+    }
+    v.push(none);
 
     let mut empty = base("sensitivity-empty", L, Screen::Sensitivity, false);
     empty.state.convert_value = "0.35".into();
@@ -180,6 +231,49 @@ fn scenes() -> Vec<Scene> {
     paused.calibration = Some(progress);
     paused.task_name = "Calibration";
     v.push(paused);
+
+    // Multi-test run: warm-up, then round 2 on its tracking segment, and the countdown before it.
+    let mut run = CalibrationRun::new(7);
+    let warm = CalibrationProgress::from_run(&run, 41.6);
+    let mut warmup = base("hud-run-warmup", L, Screen::Home, false);
+    warmup.state.menu_open = false;
+    warmup.session = PlaySession { mode: PlayMode::Calibration, paused: false };
+    warmup.task_state = TaskState::Running;
+    warmup.calibration = Some(warm);
+    warmup.task_name = "Flick Shot";
+    v.push(warmup);
+
+    while run.in_warmup() || run.block_number() < 2 {
+        run.finish_segment();
+    }
+    while run.segment().map(|s| s.kind) != Some(TestKind::Tracking) {
+        run.finish_segment();
+    }
+    let block = CalibrationProgress::from_run(&run, 41.6);
+    let mut tracking = base("hud-run-tracking", L, Screen::Home, false);
+    tracking.state.menu_open = false;
+    tracking.session = PlaySession { mode: PlayMode::Calibration, paused: false };
+    tracking.task_state = TaskState::Running;
+    tracking.calibration = Some(block);
+    tracking.task_name = "Smooth Tracking";
+    v.push(tracking);
+
+    let mut offscreen = base("hud-run-offscreen", L, Screen::Home, false);
+    offscreen.state.menu_open = false;
+    offscreen.session = PlaySession { mode: PlayMode::Calibration, paused: false };
+    offscreen.task_state = TaskState::Running;
+    offscreen.calibration = Some(block);
+    offscreen.offscreen = vec![glam::Vec2::new(-0.96, 0.28), glam::Vec2::new(0.5, -0.87)];
+    v.push(offscreen);
+
+    let mut next = base("hud-run-countdown", L, Screen::Home, false);
+    next.state.menu_open = false;
+    next.session = PlaySession { mode: PlayMode::Calibration, paused: false };
+    next.task_state = TaskState::Countdown { remaining_secs: 1.4 };
+    next.calibration = Some(block);
+    next.task_name = "Smooth Tracking";
+    next.state.show_toast("Sensitivity changed: slower", 0.5);
+    v.push(next);
 
     let mut countdown = base("hud-countdown", L, Screen::Home, false);
     countdown.state.menu_open = false;
@@ -240,7 +334,9 @@ fn render(gpu: &Gpu, mut scene: Scene, out_dir: &Path) {
         current_cm_360: scene.profile.current_cm_360,
         audio_enabled: true,
         volume: 0.6,
+        music_volume: 0.5,
         fps: 240,
+        offscreen_targets: &scene.offscreen,
     };
 
     let ctx = egui::Context::default();

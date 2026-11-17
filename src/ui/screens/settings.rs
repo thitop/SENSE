@@ -80,20 +80,25 @@ pub fn show(ui: &mut egui::Ui, state: &mut UiState, model: &UiModel, actions: &m
         ui.spacing_mut().slider_width = 240.0;
         let mut enabled = model.audio_enabled;
         let mut volume = model.volume;
-        let a = ui.checkbox(&mut enabled, "Hit, miss, and countdown sounds");
-        let b = ui
-            .horizontal(|ui| {
-                let r = ui.add_enabled(enabled, egui::Slider::new(&mut volume, 0.0..=1.0).show_value(false));
+        let mut music_volume = model.music_volume;
+        let a = ui.checkbox(&mut enabled, "Sound effects");
+        let slider = |ui: &mut egui::Ui, on: bool, v: &mut f32, label: &str| {
+            ui.horizontal(|ui| {
+                let r = ui.add_enabled(on, egui::Slider::new(v, 0.0..=1.0).show_value(false));
                 ui.label(
-                    RichText::new(format!("Volume {:.0}%", volume * 100.0))
+                    RichText::new(format!("{label} {:.0}%", *v * 100.0))
                         .font(body(13.0))
                         .color(TEXT_SECONDARY),
                 );
                 r
             })
-            .inner;
-        if a.changed() || b.changed() {
-            actions.push(UiAction::SetAudio { enabled, volume });
+            .inner
+        };
+        let b = slider(ui, enabled, &mut volume, "Effects");
+        ui.add_space(S2);
+        let c = slider(ui, true, &mut music_volume, "Music");
+        if a.changed() || b.changed() || c.changed() {
+            actions.push(UiAction::SetAudio { enabled, volume, music_volume });
         }
     });
 

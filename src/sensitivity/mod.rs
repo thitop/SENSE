@@ -1,8 +1,15 @@
 pub mod analyzer;
+pub mod blocks;
+pub mod combiner;
 pub mod converter;
+pub mod joint_fit;
+pub mod micro_signal;
+pub mod paired;
+pub mod pooling;
 pub mod games;
 pub mod path_recorder;
 pub mod psa;
+pub mod tracking_signal;
 
 pub use analyzer::StatisticalAnalyzer;
 pub use converter::SensitivityConverter;
@@ -54,6 +61,7 @@ impl SensitivityEngine {
 
     /// Feed one calibration shot taken at `cm_360`. The analyzer sample is recorded before PSA
     /// may move the sensitivity, so every shot belongs to the sensitivity it was taken at.
+    /// Shots without a classifiable trajectory feed the analyzer only.
     pub fn record_calibration_shot(
         &mut self,
         cm_360: f64,
@@ -64,7 +72,11 @@ impl SensitivityEngine {
         let accuracy = if hit { 100.0 } else { 0.0 };
         self.analyzer
             .record_sample(cm_360, accuracy, reaction_time_ms, path);
-        if !self.psa.record_shot(path.pattern) {
+        let Some(pattern) = path.pattern else {
+            // Too little movement to say whether the sensitivity was too fast or too slow.
+            return CalibrationShotOutcome::Recorded;
+        };
+        if !self.psa.record_shot(pattern) {
             return CalibrationShotOutcome::Recorded;
         }
         if self.psa.is_completed {
@@ -107,24 +119,25 @@ impl SensitivityEngine {
                 .map(|s| (s.cm_360, s.composite_score))
                 .collect(),
             at,
+            diagnostics: None,
+            pooled_runs: 1,
+            no_answer: false,
+            runs_disagree: false,
         }
     }
 
-    /// Calculate combined optimal sensitivity using both PSA binary search and Statistical Curve Fitting
+    /// The recommended sensitivity: the PSA search's fit over every round. The score-curve peak
+    /// is kept for the result graph and used only when the search has no answer. Blending it in
+    /// made results worse in simulation: its samples sit where PSA chose to test, so it isn't an
+    /// independent second opinion, and agreement between the two said little about accuracy.
     pub fn compute_final_recommendation(&self) -> FinalSensitivityRecommendation {
         let psa_cm = self.psa.recommended_cm_360;
         let stat_cm = self.analyzer.find_optimal_cm_360();
 
         let (optimal_cm, confidence) = match (psa_cm, stat_cm) {
-            (Some(p), Some(s)) => {
-                // If both are available, blend them with 60% weight to PSA and 40% to Stats
-                let diff = (p - s).abs();
-                let conf = (1.0 - (diff / 25.0).clamp(0.0, 0.8)) as f32;
-                (p * 0.60 + s * 0.40, conf)
-            }
-            (Some(p), None) => (p, 0.75),
-            (None, Some(s)) => (s, 0.70),
-            (None, None) => (40.0, 0.30), // Default 40 cm/360° fallback
+            (Some(p), _) => (p, self.psa.confidence()),
+            (None, Some(s)) => (s, 0.2),
+            (None, None) => (40.0, 0.1), // Default 40 cm/360° fallback
         };
 
         // Convert to all supported games in database

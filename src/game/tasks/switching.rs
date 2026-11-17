@@ -138,10 +138,8 @@ impl Task for SwitchingTask {
                     self.switch_count += 1;
                     hit_active = true;
                     self.select_next_active();
-                } else {
-                    // Shot the wrong target (penalty)
-                    self.score_tracker.record_miss();
                 }
+                // A wrong target is recorded as a miss below, like a shot at empty space.
                 break;
             }
         }

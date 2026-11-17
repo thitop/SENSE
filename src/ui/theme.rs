@@ -61,10 +61,12 @@ pub fn display_bold(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name("display_bold".into()))
 }
 
-/// Install fonts and the global style. Call once at startup.
+/// Install fonts, the global style and the image loaders (game logos are SVG). Call once at
+/// startup.
 pub fn install(ctx: &egui::Context) {
     ctx.set_fonts(font_definitions());
     ctx.set_style(style());
+    egui_extras::install_image_loaders(ctx);
 }
 
 fn font_definitions() -> FontDefinitions {

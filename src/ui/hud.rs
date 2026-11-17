@@ -51,6 +51,10 @@ pub fn render(ctx: &egui::Context, state: &mut UiState, model: &UiModel, actions
         }
     }
 
+    if model.task_state == TaskState::Running && !model.session.paused {
+        offscreen_arrows(ctx, model.offscreen_targets);
+    }
+
     if let Some((text, t0)) = &state.toast {
         let age = now - t0;
         if age > TOAST_SECS {
@@ -76,9 +80,45 @@ pub fn render(ctx: &egui::Context, state: &mut UiState, model: &UiModel, actions
     }
 
     match model.task_state {
-        TaskState::Countdown { remaining_secs } => countdown(ctx, remaining_secs),
+        TaskState::Countdown { remaining_secs } => {
+            let next = model.calibration.and_then(|p| p.segment_label.zip(p.segment_hint));
+            countdown(ctx, remaining_secs, next)
+        }
         TaskState::Finished if model.session.mode == PlayMode::Practice => finished_card(ctx, model, actions),
         _ => {}
+    }
+}
+
+/// Distance of off-screen arrows from the screen edge.
+const ARROW_MARGIN: f32 = 44.0;
+
+/// Where on a `size` screen the arrow toward `dir` (x right, y up) sits: on the inset border,
+/// along the line from the centre.
+pub fn edge_point(size: egui::Vec2, dir: glam::Vec2, margin: f32) -> egui::Pos2 {
+    let half = size * 0.5;
+    let (hx, hy) = ((half.x - margin).max(1.0), (half.y - margin).max(1.0));
+    let d = egui::vec2(dir.x, -dir.y); // egui's y grows downward
+    let t = (hx / d.x.abs().max(1e-6)).min(hy / d.y.abs().max(1e-6));
+    egui::Pos2::new(half.x, half.y) + d * t
+}
+
+/// A triangle at the screen edge for each target outside the view.
+fn offscreen_arrows(ctx: &egui::Context, dirs: &[glam::Vec2]) {
+    if dirs.is_empty() {
+        return;
+    }
+    let rect = ctx.screen_rect();
+    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, Id::new("offscreen_arrows")));
+    for dir in dirs {
+        let tip = rect.min + edge_point(rect.size(), *dir, ARROW_MARGIN).to_vec2();
+        let d = egui::vec2(dir.x, -dir.y).normalized();
+        let side = egui::vec2(-d.y, d.x);
+        let base = tip - d * 26.0;
+        painter.add(egui::Shape::convex_polygon(
+            vec![tip, base + side * 9.0, base - side * 9.0],
+            ACCENT,
+            Stroke::new(1.5_f32, HUD_BG),
+        ));
     }
 }
 
@@ -108,29 +148,29 @@ fn calibration_panel(ctx: &egui::Context, p: &CalibrationProgress) {
         hud_frame().show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = S3;
-                ui.label(
-                    RichText::new(format!("Round {}", p.round))
-                        .font(display_bold(15.0))
-                        .color(TEXT),
-                );
-                ui.label(RichText::new(format!("/ {}", p.max_rounds)).font(display(13.0)).color(TEXT_MUTED));
+                if p.warmup {
+                    ui.label(RichText::new("Warm-up").font(display_bold(15.0)).color(TEXT));
+                } else {
+                    ui.label(
+                        RichText::new(format!("Round {}", p.round))
+                            .font(display_bold(15.0))
+                            .color(TEXT),
+                    );
+                    ui.label(RichText::new(format!("/ {}", p.max_rounds)).font(display(13.0)).color(TEXT_MUTED));
+                }
                 segments(ui, p);
                 ui.label(RichText::new("Testing").font(body(12.0)).color(TEXT_MUTED));
-                ui.label(
-                    RichText::new(format!("{:.1} cm", p.testing_cm_360))
-                        .font(display(13.0))
-                        .color(TEXT),
-                );
+                ui.label(RichText::new(p.speed_text()).font(display(13.0)).color(TEXT));
                 ui.label(
                     RichText::new(format!("range {:.0}–{:.0}", p.low_cm_360, p.high_cm_360))
                         .font(body(12.0))
                         .color(TEXT_MUTED),
                 );
-                ui.label(
-                    RichText::new(format!("Shot {} / {}", p.shot_in_round, p.shots_per_round))
-                        .font(body(12.0))
-                        .color(TEXT_MUTED),
-                );
+                let step = match p.segment_label {
+                    Some(label) => format!("{label} · {} / {}", p.shot_in_round, p.shots_per_round),
+                    None => format!("Shot {} / {}", p.shot_in_round, p.shots_per_round),
+                };
+                ui.label(RichText::new(step).font(body(12.0)).color(TEXT_MUTED));
             });
         });
     });
@@ -153,7 +193,8 @@ fn segments(ui: &mut egui::Ui, p: &CalibrationProgress) {
     });
 }
 
-fn countdown(ctx: &egui::Context, remaining: f32) {
+/// `next`: the calibration test coming up and what it wants, if any.
+fn countdown(ctx: &egui::Context, remaining: f32, next: Option<(&str, &str)>) {
     passive("countdown", Align2::CENTER_CENTER, vec2(0.0, -40.0)).show(ctx, |ui| {
         ui.vertical_centered(|ui| {
             ui.label(
@@ -161,7 +202,15 @@ fn countdown(ctx: &egui::Context, remaining: f32) {
                     .font(display_bold(96.0))
                     .color(ACCENT),
             );
-            ui.label(RichText::new("Get ready").font(medium(16.0)).color(TEXT));
+            match next {
+                Some((label, hint)) => {
+                    ui.label(RichText::new(label).font(medium(16.0)).color(TEXT));
+                    ui.label(RichText::new(hint).font(body(13.0)).color(TEXT_SECONDARY));
+                }
+                None => {
+                    ui.label(RichText::new("Get ready").font(medium(16.0)).color(TEXT));
+                }
+            }
         });
     });
 }

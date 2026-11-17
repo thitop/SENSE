@@ -1,4 +1,6 @@
 pub mod calibration;
+pub mod calibration_run;
+pub mod spawn_cue;
 pub mod hit_detection;
 pub mod scoring;
 pub mod target;

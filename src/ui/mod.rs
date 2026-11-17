@@ -1,8 +1,10 @@
 //! The app's UI: a pure function of a read-only [`UiModel`] that returns [`UiAction`]s.
 //! `main.rs` applies the actions, so cursor locking, PSA resets and persistence live in one place.
 
+pub mod app_icon;
 pub mod graphs;
 pub mod hud;
+pub mod logos;
 pub mod screens;
 pub mod theme;
 pub mod widgets;
@@ -34,11 +36,13 @@ pub enum UiAction {
     Retry,
     Resume,
     ApplySensitivity(f64),
+    /// Stop pooling: the latest calibration run stands alone from now on.
+    UseLatestRunOnly,
     CompleteOnboarding { dpi: f64, game_id: String, cm_360: f64 },
     RerunSetup,
     SaveDpi(f64),
     SetMainGame(String),
-    SetAudio { enabled: bool, volume: f32 },
+    SetAudio { enabled: bool, volume: f32, music_volume: f32 },
     CreateProfile(String),
     SelectProfile(String),
     DeleteProfile(String),
@@ -58,7 +62,10 @@ pub struct UiModel<'a> {
     pub current_cm_360: f64,
     pub audio_enabled: bool,
     pub volume: f32,
+    pub music_volume: f32,
     pub fps: u32,
+    /// Screen-space directions (x right, y up) to live targets outside the view.
+    pub offscreen_targets: &'a [glam::Vec2],
 }
 
 /// First-run setup in progress.
@@ -106,7 +113,8 @@ pub struct UiState {
     pub convert_game_id: Option<String>,
     pub convert_value: String,
     // History
-    pub selected_session: Option<usize>,
+    /// `session_id` of the session whose detail page is open; `None` shows the list.
+    pub open_session: Option<String>,
 }
 
 impl UiState {
@@ -125,7 +133,7 @@ impl UiState {
             show_all_games: false,
             convert_game_id: None,
             convert_value: String::new(),
-            selected_session: None,
+            open_session: None,
         }
     }
 
@@ -213,6 +221,8 @@ fn sidebar(ui: &mut egui::Ui, state: &mut UiState, model: &UiModel) {
     let mut nav = |ui: &mut egui::Ui, glyph: &str, label: &str, screen: Screen| {
         if widgets::nav_item(ui, glyph, label, state.screen == screen).clicked() {
             state.screen = screen;
+            // History in the sidebar always lands on the list, even from a detail page.
+            state.open_session = None;
         }
     };
     nav(ui, icon::HOUSE, "Home", Screen::Home);

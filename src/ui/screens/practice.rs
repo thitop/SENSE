@@ -15,7 +15,7 @@ struct Scenario {
     key: &'static str,
 }
 
-const SCENARIOS: [Scenario; 5] = [
+const SCENARIOS: [Scenario; 6] = [
     Scenario {
         task: TaskType::Flick,
         icon: icon::LIGHTNING,
@@ -55,6 +55,14 @@ const SCENARIOS: [Scenario; 5] = [
         desc: "Targets vanish faster the longer you last.",
         meta: "30 targets",
         key: "5",
+    },
+    Scenario {
+        task: TaskType::MovingTargets,
+        icon: icon::CROSSHAIR,
+        name: "Moving targets",
+        desc: "Hit the moving target, then the next one.",
+        meta: "30 targets",
+        key: "6",
     },
 ];
 

@@ -33,7 +33,7 @@ pub fn psa_convergence(ui: &mut egui::Ui, rounds: &[CalibrationRound]) {
 }
 
 /// Composite score per shot against the sensitivity it was taken at.
-pub fn performance_curve(ui: &mut egui::Ui, samples: &[(f64, f64)], optimal: Option<f64>) {
+pub fn performance_curve(ui: &mut egui::Ui, samples: &[(f64, f64)], result: Option<f64>) {
     let pts: Vec<[f64; 2]> = samples.iter().map(|&(x, y)| [x, y]).collect();
     base("performance_curve", "cm/360°", "Score").show(ui, |p| {
         p.points(
@@ -41,12 +41,12 @@ pub fn performance_curve(ui: &mut egui::Ui, samples: &[(f64, f64)], optimal: Opt
                 .color(ACCENT.gamma_multiply(0.8))
                 .radius(3.0_f32),
         );
-        if let Some(x) = optimal {
+        if let Some(x) = result {
             p.vline(
                 VLine::new(x)
                     .color(SUCCESS)
                     .width(1.5_f32)
-                    .name(format!("Best: {x:.1} cm")),
+                    .name(format!("Your result: {x:.1} cm")),
             );
         }
     });

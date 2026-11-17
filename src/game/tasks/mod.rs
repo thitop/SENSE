@@ -1,15 +1,19 @@
 pub mod flick;
 pub mod micro_adjust;
+pub mod moving;
 pub mod speed;
 pub mod switching;
 pub mod tracking;
 
+use crate::sensitivity::paired::PairResult;
 use glam::Vec3;
 use std::time::Instant;
 
 use super::hit_detection::Ray;
-use flick::FlickTask;
-use micro_adjust::MicroAdjustTask;
+use crate::sensitivity::tracking_signal::TrackingWindow;
+use flick::{FlickSpawn, FlickTask};
+use micro_adjust::{MicroAdjustTask, MicroSpawn};
+use moving::MovingTargetTask;
 use speed::SpeedTask;
 use switching::SwitchingTask;
 use tracking::TrackingTask;
@@ -35,8 +39,37 @@ pub trait Task: Send + Sync {
     fn update(&mut self, dt: f32, crosshair_ray: Ray);
     fn on_click(&mut self, ray: Ray) -> bool;
     fn is_complete(&self) -> bool;
+    /// Targets that timed out without being shot since `start`.
+    fn expired_targets(&self) -> u32 {
+        0
+    }
     fn get_render_targets(&self) -> Vec<(Vec3, f32)>;
     fn get_metrics(&self) -> TaskMetrics;
+
+    // What calibration needs to judge a shot. Tasks that aren't calibration tests keep the
+    // defaults.
+
+    /// Band and angle of the live flick target.
+    fn flick_spawn(&self) -> Option<FlickSpawn> {
+        None
+    }
+    /// Offset of the live micro-adjustment target.
+    fn micro_spawn(&self) -> Option<MicroSpawn> {
+        None
+    }
+    /// Tracking windows finished since the last call.
+    fn take_tracking_windows(&mut self) -> Vec<TrackingWindow> {
+        Vec::new()
+    }
+    /// Multiplier on the tested cm/360 for what is being played right now: a paired test
+    /// alternates a faster and a slower side. Everything else plays at 1.0.
+    fn sens_factor(&self) -> f32 {
+        1.0
+    }
+    /// Pairs finished since the last call.
+    fn take_pair_results(&mut self) -> Vec<PairResult> {
+        Vec::new()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -46,7 +79,9 @@ pub enum TaskType {
     Switching,
     MicroAdjust,
     Speed,
-    /// Endless flick targets; the game loop ends it when PSA calibration completes.
+    /// One moving target at a time; a new one appears when it is shot.
+    MovingTargets,
+    /// A calibration segment; the task itself comes from `CalibrationRun::make_task`.
     Calibration,
 }
 
@@ -72,6 +107,9 @@ impl Task for CalibrationTask {
     fn is_complete(&self) -> bool {
         false
     }
+    fn expired_targets(&self) -> u32 {
+        self.0.expired_targets()
+    }
     fn get_render_targets(&self) -> Vec<(Vec3, f32)> {
         self.0.get_render_targets()
     }
@@ -79,6 +117,9 @@ impl Task for CalibrationTask {
         let mut m = self.0.get_metrics();
         m.task_name = "Calibration".into();
         m
+    }
+    fn flick_spawn(&self) -> Option<FlickSpawn> {
+        self.0.flick_spawn()
     }
 }
 
@@ -118,15 +159,54 @@ impl TaskManager {
             TaskType::Switching => Box::new(SwitchingTask::new(25, 4, 0.32)),
             TaskType::MicroAdjust => Box::new(MicroAdjustTask::new(30, 0.16)),
             TaskType::Speed => Box::new(SpeedTask::new(30)),
+            TaskType::MovingTargets => Box::new(MovingTargetTask::new(30, 0.35, 3.0)),
             TaskType::Calibration => Box::new(CalibrationTask(FlickTask::new(usize::MAX, 0.35))),
         };
         self.state = TaskState::NotStarted;
+    }
+
+    /// Run a task built elsewhere (a calibration segment) as `task_type`.
+    pub fn set_custom_task(&mut self, task: Box<dyn Task>, task_type: TaskType) {
+        self.current_type = task_type;
+        self.current_task = task;
+        self.state = TaskState::NotStarted;
+    }
+
+    pub fn current_flick_spawn(&self) -> Option<FlickSpawn> {
+        self.current_task.flick_spawn()
+    }
+
+    pub fn current_micro_spawn(&self) -> Option<MicroSpawn> {
+        self.current_task.micro_spawn()
+    }
+
+    pub fn take_tracking_windows(&mut self) -> Vec<TrackingWindow> {
+        self.current_task.take_tracking_windows()
+    }
+
+    /// The running task's sensitivity multiplier; 1.0 while counting down or stopped.
+    pub fn sens_factor(&self) -> f32 {
+        if self.state == TaskState::Running {
+            self.current_task.sens_factor()
+        } else {
+            1.0
+        }
+    }
+
+    pub fn take_pair_results(&mut self) -> Vec<PairResult> {
+        self.current_task.take_pair_results()
     }
 
     pub fn start_task_with_countdown(&mut self) {
         self.state = TaskState::Countdown {
             remaining_secs: self.countdown_duration,
         };
+    }
+
+    /// Start the task with no countdown: targets appear on the next update.
+    pub fn start_task_now(&mut self) {
+        self.current_task.start();
+        self.state = TaskState::Running;
     }
 
     pub fn update(&mut self, dt: f32, crosshair_ray: Ray) {
@@ -174,6 +254,11 @@ impl TaskManager {
             self.set_task(self.current_type);
         }
         in_progress
+    }
+
+    /// Targets of the current run that timed out without being shot.
+    pub fn expired_targets(&self) -> u32 {
+        self.current_task.expired_targets()
     }
 
     /// Metrics of the task in progress (the calibration task never finishes on its own).

@@ -53,6 +53,7 @@ pub struct Renderer {
 
     // 3D Scene pipeline
     pub scene_pipeline: wgpu::RenderPipeline,
+    pub room_pipeline: wgpu::RenderPipeline,
     pub camera_buffer: wgpu::Buffer,
     pub camera_bind_group: wgpu::BindGroup,
 
@@ -182,45 +183,50 @@ impl Renderer {
                 push_constant_ranges: &[],
             });
 
-        let scene_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Scene Render Pipeline"),
-            layout: Some(&scene_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &scene_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[Vertex::desc()],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &scene_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        });
+        // Room and targets share vertices and camera; only the fragment shading differs.
+        let make_scene_pipeline = |label: &str, fragment_entry: &str| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&scene_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &scene_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[Vertex::desc()],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &scene_shader,
+                    entry_point: Some(fragment_entry),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: config.format,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            })
+        };
+        let scene_pipeline = make_scene_pipeline("Scene Render Pipeline", "fs_main");
+        let room_pipeline = make_scene_pipeline("Room Render Pipeline", "fs_room");
 
         // Crosshair Pipeline (2D HUD)
         let crosshair_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -321,6 +327,7 @@ impl Renderer {
             size,
             depth_view,
             scene_pipeline,
+            room_pipeline,
             camera_buffer,
             camera_bind_group,
             room_vertex_buffer,
@@ -356,6 +363,13 @@ impl Renderer {
         };
         let texture = device.create_texture(&desc);
         texture.create_view(&wgpu::TextureViewDescriptor::default())
+    }
+
+    /// Set the surface up again at the window's current size, after it reported `Outdated`
+    /// or `Lost`. The stored size may be stale, which is how the surface got outdated.
+    pub fn reconfigure(&mut self) {
+        let size = self.window.inner_size();
+        self.resize(size);
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -484,14 +498,15 @@ impl Renderer {
                 timestamp_writes: None,
             });
 
-            render_pass.set_pipeline(&self.scene_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
 
+            render_pass.set_pipeline(&self.room_pipeline);
             render_pass.set_vertex_buffer(0, self.room_vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.room_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..self.room_index_count, 0, 0..1);
 
             if !target_indices.is_empty() {
+                render_pass.set_pipeline(&self.scene_pipeline);
                 let v_end = (target_verts.len() * std::mem::size_of::<Vertex>()) as u64;
                 let i_end = (target_indices.len() * std::mem::size_of::<u32>()) as u64;
 
@@ -559,4 +574,33 @@ impl Renderer {
 
         Ok(())
     }
+}
+
+/// What the render loop does when the surface can't hand out a frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SurfaceAction {
+    /// Set the surface up again at the window's size (`Renderer::reconfigure`).
+    Reconfigure,
+    /// Try again next frame.
+    SkipFrame,
+    /// Nothing can be drawn any more.
+    Exit,
+    /// Unexpected: log it.
+    Report,
+}
+
+/// `Outdated` comes with every resize, minimise or alt-tab out of fullscreen until the
+/// surface is configured again, so it's routine, not an error.
+pub fn on_surface_error(e: &wgpu::SurfaceError) -> SurfaceAction {
+    match e {
+        wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost => SurfaceAction::Reconfigure,
+        wgpu::SurfaceError::Timeout => SurfaceAction::SkipFrame,
+        wgpu::SurfaceError::OutOfMemory => SurfaceAction::Exit,
+        _ => SurfaceAction::Report,
+    }
+}
+
+/// A minimised window has no area; the surface can't be configured or drawn to.
+pub fn can_draw(size: winit::dpi::PhysicalSize<u32>) -> bool {
+    size.width > 0 && size.height > 0
 }

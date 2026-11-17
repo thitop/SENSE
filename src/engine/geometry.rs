@@ -76,16 +76,17 @@ pub fn create_sphere(radius: f32, sectors: u32, stacks: u32, color: [f32; 4]) ->
         let k2 = k1 + sectors + 1;
 
         for j in 0..sectors {
+            // Counter-clockwise seen from outside, to match `FrontFace::Ccw` with back-face culling.
             if i != 0 {
                 indices.push(k1 + j);
-                indices.push(k2 + j);
                 indices.push(k1 + j + 1);
+                indices.push(k2 + j);
             }
 
             if i != (stacks - 1) {
                 indices.push(k1 + j + 1);
-                indices.push(k2 + j);
                 indices.push(k2 + j + 1);
+                indices.push(k2 + j);
             }
         }
     }
@@ -109,9 +110,11 @@ pub fn create_room(width: f32, height: f32, depth: f32, wall_color: [f32; 4], fl
         vertices.push(Vertex { position: p3, normal: norm, color: col });
         vertices.push(Vertex { position: p4, normal: norm, color: col });
 
+        // The corners are listed clockwise as seen from inside the room; emit the triangles in
+        // reverse so they're counter-clockwise from inside and survive back-face culling.
         indices.extend_from_slice(&[
-            base_idx, base_idx + 1, base_idx + 2,
-            base_idx, base_idx + 2, base_idx + 3,
+            base_idx, base_idx + 2, base_idx + 1,
+            base_idx, base_idx + 3, base_idx + 2,
         ]);
     };
 

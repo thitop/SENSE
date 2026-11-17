@@ -13,7 +13,11 @@ mod tests {
             id: "valorant".into(),
             name: "Valorant".into(),
             yaw: 0.07,
+            yaw_offset: 0.0,
             default_fov: 103.0,
+            scoped: Vec::new(),
+            scoped_note: None,
+            scale: aim_trainer::sensitivity::games::SensScale::Linear,
         };
 
         // At 800 DPI and sens 0.35 in Valorant:
@@ -72,4 +76,15 @@ mod tests {
         // Low bound should be updated to previous mid
         assert!(psa.current_test_cm_360 > 47.5);
     }
+}
+
+#[test]
+fn a_profile_saved_with_a_scope_test_result_still_loads() {
+    // The scope test was removed; profiles that kept its result must still open.
+    let json = r#"{"id":"p","name":"P","dpi":800.0,"primary_game_id":"cs2","current_cm_360":40.0,
+        "created_at":"2026-11-16T00:00:00Z","last_played_at":"2026-11-16T00:00:00Z",
+        "last_scoped":{"at":"2026-11-17T02:36:51Z","dpi":800.0,"hip_cm_360":30.4,
+        "levels":[{"zoom":2.0,"multiplier":1.1,"rel_uncertainty":0.1,"confidence":0.8}]}}"#;
+    let p: aim_trainer::data::PlayerProfile = serde_json::from_str(json).unwrap();
+    assert_eq!(p.current_cm_360, 40.0);
 }

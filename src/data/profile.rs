@@ -19,6 +19,9 @@ pub struct PlayerProfile {
     pub onboarded: bool,
     #[serde(default)]
     pub last_calibration: Option<CalibrationResult>,
+    /// Recent calibration runs, pooled into `last_calibration` (see `sensitivity::pooling`).
+    #[serde(default)]
+    pub recent_runs: Vec<crate::sensitivity::pooling::RunRecord>,
 }
 
 fn default_onboarded() -> bool {
@@ -60,6 +63,7 @@ impl PlayerProfile {
             last_played_at: now,
             onboarded: false,
             last_calibration: None,
+            recent_runs: Vec::new(),
         }
     }
 }

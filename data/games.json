@@ -3,30 +3,71 @@
     "id": "valorant",
     "name": "Valorant",
     "yaw": 0.07,
-    "default_fov": 103.0
+    "default_fov": 103.0,
+    "scoped": [
+      {
+        "setting": "Scoped Sensitivity Multiplier",
+        "value": "0.747",
+        "scope": "Operator, first zoom (2.5×)"
+      },
+      {
+        "setting": "Scoped Sensitivity Multiplier",
+        "value": "0.731",
+        "scope": "Marshal / Outlaw (3.5×)"
+      },
+      {
+        "setting": "Scoped Sensitivity Multiplier",
+        "value": "0.723",
+        "scope": "Operator, second zoom (5×)"
+      }
+    ]
   },
   {
     "id": "cs2",
     "name": "Counter-Strike 2 / CS:GO",
     "yaw": 0.022,
-    "default_fov": 106.26
+    "default_fov": 106.26,
+    "scoped": [
+      {
+        "setting": "zoom_sensitivity_ratio",
+        "value": "0.818933"
+      }
+    ]
   },
   {
     "id": "overwatch2",
     "name": "Overwatch 2",
     "yaw": 0.0066,
-    "default_fov": 103.0
+    "default_fov": 103.0,
+    "scoped": [
+      {
+        "setting": "Relative Aim Sensitivity While Zoomed",
+        "value": "37.89%",
+        "scope": "Widowmaker / Ana"
+      },
+      {
+        "setting": "Relative Aim Sensitivity While Zoomed",
+        "value": "51.47%",
+        "scope": "Ashe"
+      }
+    ]
   },
   {
     "id": "apex",
     "name": "Apex Legends / Source Engine",
     "yaw": 0.022,
-    "default_fov": 110.0
+    "default_fov": 110.0,
+    "scoped": [
+      {
+        "setting": "ADS Mouse Sensitivity Multiplier",
+        "value": "1.0"
+      }
+    ]
   },
   {
     "id": "fortnite",
     "name": "Fortnite",
-    "yaw": 0.5555,
+    "yaw": 0.005555,
     "default_fov": 80.0
   },
   {
@@ -39,6 +80,73 @@
     "id": "cod_warzone",
     "name": "Call of Duty / Warzone",
     "yaw": 0.0066,
-    "default_fov": 120.0
+    "default_fov": 120.0,
+    "scoped": [
+      {
+        "setting": "ADS Sensitivity Multiplier",
+        "value": "1.00"
+      },
+      {
+        "setting": "ADS Sens. Multiplier Mode",
+        "value": "Relative"
+      },
+      {
+        "setting": "Monitor Distance Coefficient",
+        "value": "0.00"
+      }
+    ]
+  },
+  {
+    "id": "wardogs",
+    "name": "WARDOGS",
+    "yaw": 0.0331578947,
+    "yaw_offset": 0.0036842105,
+    "default_fov": 90.0
+  },
+  {
+    "id": "pubg",
+    "name": "PUBG: BATTLEGROUNDS",
+    "yaw": 2.222,
+    "default_fov": 90.0,
+    "scale": {
+      "exponential": {
+        "mid_slider": 50.0,
+        "mid_value": 0.02,
+        "slider_per_decade": 50.0
+      }
+    },
+    "scoped": [
+      {
+        "setting": "Scope sensitivity",
+        "value": "General − 3.1",
+        "scope": "2x"
+      },
+      {
+        "setting": "Scope sensitivity",
+        "value": "General − 3.6",
+        "scope": "3x"
+      },
+      {
+        "setting": "Scope sensitivity",
+        "value": "General − 3.8",
+        "scope": "4x"
+      },
+      {
+        "setting": "Scope sensitivity",
+        "value": "General − 3.9",
+        "scope": "6x"
+      },
+      {
+        "setting": "Scope sensitivity",
+        "value": "General − 3.9",
+        "scope": "8x"
+      },
+      {
+        "setting": "Scope sensitivity",
+        "value": "General − 4.0",
+        "scope": "15x"
+      }
+    ],
+    "scoped_note": "Worked out from the community-reported scaling (scopes slow with their FOV, base 80), not measured. For TPP; FPP at a wider FOV likely needs lower scope values."
   }
 ]

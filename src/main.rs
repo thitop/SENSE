@@ -1,3 +1,6 @@
+// Release builds open without a console window; debug builds keep it for the logs.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod data;
 mod engine;
 mod game;
@@ -6,17 +9,22 @@ mod ui;
 
 use data::{DataManager, MetricPoint, PlayerProfile, SessionHistory, SessionRecord};
 use engine::{
-    audio::AudioManager, camera::Camera, input::InputManager, renderer::Renderer, timing::Timing,
+    audio::{AudioManager, Music, Sfx},
+    camera::Camera, input::InputManager, renderer::{self, Renderer}, timing::Timing,
 };
 use game::{
     calibration::{
         esc_closes_menu, records_calibration_shot, round_change_message, CalibrationProgress,
         PlayMode, PlaySession, RunTotals,
     },
+    calibration_run::{CalibrationRun, SegmentEnd},
+    spawn_cue::SpawnWatcher,
     hit_detection::Ray,
     tasks::{TaskManager, TaskState, TaskType},
 };
-use sensitivity::{CalibrationShotOutcome, SensitivityConverter, SensitivityEngine};
+use sensitivity::combiner::TestKind;
+use sensitivity::path_recorder::ShotMovementPath;
+use sensitivity::{pooling, SensitivityConverter, SensitivityEngine};
 use std::sync::Arc;
 use ui::{render_ui, theme, OnboardingDraft, Screen, UiAction, UiModel, UiState};
 use winit::{
@@ -46,8 +54,17 @@ struct GameState {
     rad_per_count: f32,
     player_dpi: f64,
     current_session_points: Vec<MetricPoint>,
-    /// Score and time banked from earlier segments of a paused-and-resumed calibration.
+    /// Score and time banked from earlier segments of a calibration (finished or paused).
     calibration_totals: RunTotals,
+    /// The multi-test calibration in progress.
+    calibration_run: Option<CalibrationRun>,
+    /// Counted flick shots of the segment in progress, for the result's score curve. Added to
+    /// the analyzer when the segment finishes, so a replayed segment isn't drawn twice.
+    pending_curve: Vec<(f64, f64, f64, ShotMovementPath)>,
+    /// The micro target already judged: only the first click on a target says anything, a
+    /// later one starts mid-correction.
+    /// Spots targets that just appeared, to cue the ones outside the view.
+    spawn_watcher: SpawnWatcher,
     shot_counter: u32,
     last_countdown_sec: i32,
 }
@@ -59,14 +76,18 @@ impl GameState {
         let aspect_ratio = size.width as f32 / size.height.max(1) as f32;
         let camera = Camera::new(aspect_ratio);
         let mut input = InputManager::new();
-        input.register_raw_input(&window);
         // The app opens on the menu, so the cursor starts free.
         input.set_cursor_locked(&window, false);
 
         let timing = Timing::new(1000.0); // 1000 Hz physics tick
-        let audio_manager = AudioManager::new();
+        let mut audio_manager = AudioManager::new();
 
         let data_manager = DataManager::new();
+        // Sound settings from last time. With no sound device, effects stay off regardless.
+        let settings = data_manager.load_settings();
+        audio_manager.is_enabled &= settings.sound_effects;
+        audio_manager.volume = settings.effects_volume;
+        audio_manager.set_music_volume(settings.music_volume);
         let active_profile = data_manager.profile_manager.get_active_profile().cloned();
         let player_dpi = active_profile.as_ref().map(|p| p.dpi).unwrap_or(800.0);
         let current_cm_360 = active_profile
@@ -120,6 +141,9 @@ impl GameState {
             player_dpi,
             current_session_points: Vec::new(),
             calibration_totals: RunTotals::default(),
+            calibration_run: None,
+            pending_curve: Vec::new(),
+            spawn_watcher: SpawnWatcher::default(),
             shot_counter: 0,
             last_countdown_sec: 4,
         }
@@ -179,8 +203,53 @@ impl GameState {
     fn restart_countdown(&mut self, task: TaskType) {
         self.last_countdown_sec = 4;
         self.task_manager.set_task(task);
+        self.task_manager.countdown_duration = 3.0;
         self.task_manager.start_task_with_countdown();
         self.sensitivity_engine.path_recorder.start_shot();
+    }
+
+    /// Start the calibration run's current segment, after a countdown when `countdown_secs` > 0
+    /// (the run's start and resuming). Segments within a run follow each other directly.
+    fn begin_segment(&mut self, countdown_secs: f32) {
+        let Some(run) = &self.calibration_run else { return };
+        let task = run.make_task();
+        self.task_manager.set_custom_task(task, TaskType::Calibration);
+        if countdown_secs > 0.0 {
+            self.last_countdown_sec = countdown_secs.ceil() as i32 + 1;
+            self.task_manager.countdown_duration = countdown_secs;
+            self.task_manager.start_task_with_countdown();
+        } else {
+            self.task_manager.start_task_now();
+        }
+        self.spawn_watcher.clear();
+        self.sensitivity_engine.path_recorder.start_shot();
+        self.pending_curve.clear();
+    }
+
+    /// A segment's task completed: count it, then move on to the next segment or block.
+    fn on_segment_finished(&mut self) {
+        if let Some(m) = self.task_manager.last_completed_metrics.clone() {
+            self.calibration_totals.add_segment(m.score, m.duration_secs);
+        }
+        let Some(run) = self.calibration_run.as_mut() else { return };
+        let end = run.finish_segment();
+        for (cm, accuracy, rt, path) in self.pending_curve.drain(..) {
+            self.sensitivity_engine.analyzer.record_sample(cm, accuracy, rt, &path);
+        }
+        match end {
+            SegmentEnd::Next => self.begin_segment(0.0),
+            SegmentEnd::SensitivityChanged(conclusion) => {
+                let player_cm = self.profile_cm_360();
+                let cm = self.calibration_run.as_ref().map_or(player_cm, |r| r.test_cm(player_cm));
+                self.set_cm_360(cm);
+                let now = self.now();
+                let msg = conclusion.map_or("Warm-up done. Testing starts", round_change_message);
+                self.ui_state.show_toast(msg, now);
+                self.audio_manager.play(Sfx::SensChange, None);
+                self.begin_segment(0.0);
+            }
+            SegmentEnd::Completed => self.finish_calibration(),
+        }
     }
 
     /// Start a fresh run of `task` in `mode`.
@@ -221,7 +290,7 @@ impl GameState {
         self.reload_history();
         self.ui_state.dpi_input = None;
         self.ui_state.dpi_error = None;
-        self.ui_state.selected_session = None;
+        self.ui_state.open_session = None;
         self.ui_state.onboarding = None; // re-created next frame if the new profile needs setup
     }
 
@@ -244,13 +313,39 @@ impl GameState {
     }
 
     fn finish_calibration(&mut self) {
-        let result = self
-            .sensitivity_engine
-            .build_calibration_result(chrono::Utc::now());
-        let m = self.task_manager.current_metrics();
-        let totals = self.calibration_totals.with_current(m.score, m.duration_secs);
+        let Some(run) = self.calibration_run.take() else { return };
+        let analyzer = &self.sensitivity_engine.analyzer;
+        let curve = analyzer.samples.iter().map(|s| (s.cm_360, s.composite_score)).collect();
+        let result = run.build_result(curve, analyzer.find_optimal_cm_360(), chrono::Utc::now());
+        // Every segment, the last one included, was banked when it finished.
+        let totals = self.calibration_totals;
         self.record_session("Calibration".into(), result.cm_360, totals.score, totals.duration_secs);
-        self.update_profile(|p| p.last_calibration = Some(result));
+        let profile_id = self.data_manager.profile_manager.active_profile_id.clone().unwrap_or_else(|| "default".into());
+        if let Err(e) = self.data_manager.archive_calibration(&profile_id, &result) {
+            log::warn!("Could not archive the calibration: {e}");
+        }
+        // Pool with recent runs at this DPI: one run is ±13–19%, and runs agree within that.
+        let now = chrono::Utc::now();
+        let record = run.run_record(self.player_dpi, result.at);
+        let mut result = result;
+        self.update_profile(|p| {
+            p.recent_runs.push(record);
+            pooling::keep_recent(&mut p.recent_runs, now);
+            let picked = pooling::runs_to_pool(&p.recent_runs, now, p.dpi);
+            // A run with no answer of its own isn't pooled; then it shows as no answer rather
+            // than as a pool of the runs before it.
+            let latest_in = picked.iter().any(|r| r.at == result.at);
+            if latest_in && picked.len() > 1 {
+                // Only the newest runs that agree are pooled: fitting runs that found very
+                // different values together gives a result wider than any of them.
+                let agreeing = pooling::newest_agreeing(&picked);
+                match (agreeing.len() > 1).then(|| pooling::pool(&agreeing)).flatten() {
+                    Some(pooled) => result.apply_pool(&pooled),
+                    None => result.runs_disagree = true,
+                }
+            }
+            p.last_calibration = Some(result);
+        });
         self.audio_manager.play_complete();
 
         self.session = PlaySession {
@@ -265,6 +360,8 @@ impl GameState {
 
     fn quit_calibration(&mut self) {
         self.sensitivity_engine.reset_calibration();
+        self.calibration_run = None;
+        self.pending_curve.clear();
         self.session = PlaySession {
             mode: PlayMode::Practice,
             paused: false,
@@ -278,7 +375,11 @@ impl GameState {
     fn resume(&mut self) {
         if self.session.mode == PlayMode::Calibration {
             self.session.paused = false;
-            self.restart_countdown(TaskType::Calibration);
+            // The interrupted segment is played again from the start.
+            if let Some(run) = self.calibration_run.as_mut() {
+                run.restart_segment();
+            }
+            self.begin_segment(3.0);
         }
         self.close_menu();
     }
@@ -289,8 +390,15 @@ impl GameState {
             UiAction::StartCalibration => {
                 self.sensitivity_engine.reset_calibration();
                 self.calibration_totals = RunTotals::default();
-                self.set_cm_360(self.sensitivity_engine.psa.current_test_cm_360);
-                self.start_run(PlayMode::Calibration, TaskType::Calibration);
+                let seed = chrono::Utc::now().timestamp_millis() as u64;
+                let run = CalibrationRun::new(seed);
+                self.set_cm_360(run.test_cm(self.profile_cm_360()));
+                self.calibration_run = Some(run);
+                self.session = PlaySession { mode: PlayMode::Calibration, paused: false };
+                self.current_session_points.clear();
+                self.shot_counter = 0;
+                self.begin_segment(3.0);
+                self.close_menu();
             }
             UiAction::QuitCalibration => self.quit_calibration(),
             UiAction::StartPractice(task) => {
@@ -304,6 +412,14 @@ impl GameState {
                 }
             }
             UiAction::Resume => self.resume(),
+            UiAction::UseLatestRunOnly => self.update_profile(|p| {
+                let Some(cal) = p.last_calibration.as_mut() else { return };
+                p.recent_runs.retain(|r| r.at == cal.at);
+                let latest: Vec<&pooling::RunRecord> = p.recent_runs.iter().collect();
+                if let Some(alone) = pooling::pool(&latest) {
+                    cal.apply_pool(&alone);
+                }
+            }),
             UiAction::ApplySensitivity(cm) => {
                 self.update_profile(|p| p.current_cm_360 = cm);
                 self.set_cm_360(cm);
@@ -332,9 +448,14 @@ impl GameState {
                 self.set_dpi(dpi);
             }
             UiAction::SetMainGame(id) => self.update_profile(|p| p.primary_game_id = id),
-            UiAction::SetAudio { enabled, volume } => {
+            UiAction::SetAudio { enabled, volume, music_volume } => {
                 self.audio_manager.is_enabled = enabled;
                 self.audio_manager.volume = volume;
+                self.audio_manager.set_music_volume(music_volume);
+                let settings = data::AppSettings { sound_effects: enabled, effects_volume: volume, music_volume };
+                if let Err(e) = self.data_manager.save_settings(&settings) {
+                    log::warn!("Could not save the settings: {e}");
+                }
             }
             UiAction::CreateProfile(name) => {
                 let game = self
@@ -369,6 +490,15 @@ impl GameState {
     fn update(&mut self) {
         let dt = self.timing.update();
         let playing = !self.ui_state.menu_open && !self.session.paused;
+
+        // Paired micro and tracking play a slightly faster or slower side of the block's
+        // sensitivity; everything else plays at factor 1.0. The HUD keeps the block's value.
+        let factor = match self.session.mode {
+            PlayMode::Calibration => self.task_manager.sens_factor() as f64,
+            PlayMode::Practice => 1.0,
+        };
+        self.rad_per_count =
+            SensitivityConverter::cm_360_to_rad_per_count(self.player_dpi, self.current_cm_360 * factor);
 
         // 1. Raw mouse deltas (only while the cursor is captured)
         if self.input.is_locked() {
@@ -406,11 +536,47 @@ impl GameState {
         if playing {
             let was_running = self.task_manager.state == TaskState::Running;
             let was_counting = matches!(self.task_manager.state, TaskState::Countdown { .. });
+            let expired_before = self.task_manager.expired_targets();
             self.task_manager.update(dt, crosshair_ray);
 
             // The first shot's timer and path start when targets appear, not when the countdown does.
+            // A target that timed out unshot starts a new one too, so the next shot's path and
+            // reaction time don't include aiming at a target that is gone.
+            let target_expired = self.task_manager.expired_targets() > expired_before;
             if was_counting && self.task_manager.state == TaskState::Running {
+                self.audio_manager.play_countdown_beep(true);
+            }
+            if (was_counting && self.task_manager.state == TaskState::Running) || target_expired {
                 self.sensitivity_engine.path_recorder.start_shot();
+            }
+
+            // A target that appeared outside the view gets a sound from its side.
+            let targets = self.task_manager.get_render_targets();
+            for position in self.spawn_watcher.update(&targets) {
+                if let Some(dir) = self.camera.offscreen_direction(position) {
+                    self.audio_manager.play_spawn_cue(dir.x);
+                }
+            }
+
+            // Tracking windows are diagnostics only now; drain them so they don't pile up.
+            self.task_manager.take_tracking_windows();
+            // Pairs of the paired micro and tracking tests finished this tick.
+            let pairs = self.task_manager.take_pair_results();
+            if self.session.records_calibration() {
+                if let Some(run) = self.calibration_run.as_mut() {
+                    if let Some(seg) = run.segment() {
+                        for pair in pairs {
+                            run.record_pair(seg.kind, pair);
+                        }
+                    }
+                }
+            }
+
+            if was_running
+                && self.task_manager.state == TaskState::Finished
+                && self.session.mode == PlayMode::Calibration
+            {
+                self.on_segment_finished();
             }
 
             if was_running
@@ -425,6 +591,11 @@ impl GameState {
                 self.lock_cursor(false);
             }
         }
+
+        // Menu music in menus and on result cards, quieter game music while targets are up.
+        let in_game = !self.ui_state.menu_open
+            && matches!(self.task_manager.state, TaskState::Countdown { .. } | TaskState::Running);
+        self.audio_manager.set_music(Some(if in_game { Music::Game } else { Music::Menu }));
 
         // 4. Camera uniform to GPU
         self.renderer.update_camera(&self.camera);
@@ -453,22 +624,17 @@ impl GameState {
             });
 
             if records_calibration_shot(self.session, self.task_manager.state) {
-                let outcome = self.sensitivity_engine.record_calibration_shot(
-                    self.current_cm_360,
-                    hit,
-                    rt_ms as f64,
-                    &path,
-                );
-                match outcome {
-                    CalibrationShotOutcome::Recorded => {}
-                    CalibrationShotOutcome::RoundChanged(conclusion) => {
-                        self.set_cm_360(self.sensitivity_engine.psa.current_test_cm_360);
-                        let now = self.now();
-                        self.ui_state.show_toast(round_change_message(conclusion), now);
-                    }
-                    CalibrationShotOutcome::Completed => {
-                        self.finish_calibration();
-                        return;
+                if let Some(run) = self.calibration_run.as_mut() {
+                    match run.segment() {
+                        // Flick is judged by its pairs (time to hit); the shot path only feeds
+                        // the score graph now.
+                        Some(seg) if seg.kind == TestKind::Flick => {
+                            if seg.counted {
+                                let accuracy = if hit { 100.0 } else { 0.0 };
+                                self.pending_curve.push((self.current_cm_360, accuracy, rt_ms as f64, path));
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -489,6 +655,13 @@ impl GameState {
             .unwrap_or_else(|| {
                 PlayerProfile::new("default".into(), "Player".into(), self.player_dpi, "valorant".into())
             });
+        // Arrows at the screen edge toward targets outside the view.
+        let offscreen_targets: Vec<glam::Vec2> = self
+            .task_manager
+            .get_render_targets()
+            .iter()
+            .filter_map(|(p, _)| self.camera.offscreen_direction(*p))
+            .collect();
         let model = UiModel {
             profile: &profile,
             profiles: &self.data_manager.profile_manager.profiles,
@@ -498,16 +671,21 @@ impl GameState {
             task_state: self.task_manager.state,
             task_name: self.task_manager.current_task_name(),
             last_metrics: self.task_manager.last_completed_metrics.as_ref(),
-            calibration: (self.session.mode == PlayMode::Calibration)
-                .then(|| CalibrationProgress::from_psa(&self.sensitivity_engine.psa)),
+            calibration: self
+                .calibration_run
+                .as_ref()
+                .filter(|_| self.session.mode == PlayMode::Calibration)
+                .map(|r| CalibrationProgress::from_run(r, profile.current_cm_360)),
             current_cm_360: self.current_cm_360,
             audio_enabled: self.audio_manager.is_enabled,
             volume: self.audio_manager.volume,
+            music_volume: self.audio_manager.music_volume(),
             fps: self.timing.fps(),
+            offscreen_targets: &offscreen_targets,
         };
         let ui_state = &mut self.ui_state;
         let mut actions = Vec::new();
-        let full_output = self.egui_ctx.run(raw_input, |ctx| {
+        let mut full_output = self.egui_ctx.run(raw_input, |ctx| {
             actions = render_ui(ctx, ui_state, &model);
         });
         drop(model);
@@ -515,6 +693,11 @@ impl GameState {
             self.apply_action(action);
         }
 
+        // egui-winit shows the cursor whenever its icon changes or the pointer re-enters the
+        // window; while aiming, keep it hidden.
+        if self.input.is_locked() {
+            full_output.platform_output.cursor_icon = egui::CursorIcon::None;
+        }
         self.egui_state
             .handle_platform_output(&self.renderer.window, full_output.platform_output);
 
@@ -589,6 +772,7 @@ impl GameState {
             KeyCode::Digit3 => Some(TaskType::Switching),
             KeyCode::Digit4 => Some(TaskType::MicroAdjust),
             KeyCode::Digit5 => Some(TaskType::Speed),
+            KeyCode::Digit6 => Some(TaskType::MovingTargets),
             _ => None,
         };
         match key {
@@ -611,10 +795,19 @@ struct App {
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.is_none() {
-            let window_attributes = Window::default_attributes()
-                .with_title("Aim Trainer - Find Your Perfect Sensitivity")
+            let icon = ui::app_icon::app_icon_rgba(ui::app_icon::ICON_SIZE);
+            let icon = winit::window::Icon::from_rgba(icon, ui::app_icon::ICON_SIZE, ui::app_icon::ICON_SIZE).ok();
+            #[allow(unused_mut)]
+            let mut window_attributes = Window::default_attributes()
+                .with_title(ui::app_icon::APP_NAME)
+                .with_window_icon(icon.clone())
                 .with_inner_size(winit::dpi::LogicalSize::new(1280, 720))
                 .with_min_inner_size(winit::dpi::LogicalSize::new(1024, 640));
+            #[cfg(target_os = "windows")]
+            {
+                use winit::platform::windows::WindowAttributesExtWindows;
+                window_attributes = window_attributes.with_taskbar_icon(icon);
+            }
 
             let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
             let state = pollster::block_on(GameState::new(window));
@@ -661,6 +854,10 @@ impl ApplicationHandler for App {
             WindowEvent::Resized(physical_size) => {
                 state.renderer.resize(physical_size);
                 state.camera.update_aspect_ratio(physical_size.width, physical_size.height);
+                state.input.recenter_if_locked(&state.renderer.window);
+            }
+            WindowEvent::Moved(_) | WindowEvent::Focused(true) => {
+                state.input.recenter_if_locked(&state.renderer.window);
             }
             WindowEvent::KeyboardInput {
                 event:
@@ -688,11 +885,20 @@ impl ApplicationHandler for App {
             WindowEvent::RedrawRequested => {
                 state.update();
 
-                match state.render() {
-                    Ok(_) => {}
-                    Err(wgpu::SurfaceError::Lost) => state.renderer.resize(state.renderer.size),
-                    Err(wgpu::SurfaceError::OutOfMemory) => event_loop.exit(),
-                    Err(e) => log::error!("Render error: {:?}", e),
+                // Minimised: nothing to draw into until the window comes back.
+                if renderer::can_draw(state.renderer.window.inner_size()) {
+                    if let Err(e) = state.render() {
+                        match renderer::on_surface_error(&e) {
+                            renderer::SurfaceAction::Reconfigure => {
+                                state.renderer.reconfigure();
+                                let size = state.renderer.size;
+                                state.camera.update_aspect_ratio(size.width, size.height);
+                            }
+                            renderer::SurfaceAction::SkipFrame => log::debug!("Frame skipped: {e:?}"),
+                            renderer::SurfaceAction::Exit => event_loop.exit(),
+                            renderer::SurfaceAction::Report => log::error!("Render error: {e:?}"),
+                        }
+                    }
                 }
 
                 state.renderer.window.request_redraw();

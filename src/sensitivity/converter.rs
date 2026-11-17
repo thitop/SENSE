@@ -1,8 +1,8 @@
 use super::games::GameProfile;
 
 /// cm/360° is the universal unit for mouse sensitivity.
-/// Formula:
-///   counts_per_360 = 360.0 / (sens * yaw)
+/// Formula (`yaw_offset` is 0 and `scale` linear for most games, see `GameProfile`):
+///   counts_per_360 = 360.0 / (scale(sens) * yaw + yaw_offset)
 ///   inches_per_360 = counts_per_360 / DPI
 ///   cm_per_360 = inches_per_360 * 2.54 = (360 * 2.54) / (DPI * sens * yaw)
 ///              = 914.4 / (DPI * sens * yaw)
@@ -14,7 +14,7 @@ impl SensitivityConverter {
         if dpi <= 0.0 || sens <= 0.0 || game.yaw <= 0.0 {
             return 0.0;
         }
-        (360.0 * 2.54) / (dpi * sens * game.yaw)
+        (360.0 * 2.54) / (dpi * game.deg_per_count(sens))
     }
 
     /// Convert universal cm/360° back into game-specific in-game sensitivity value
@@ -22,7 +22,7 @@ impl SensitivityConverter {
         if dpi <= 0.0 || cm_360 <= 0.0 || game.yaw <= 0.0 {
             return 0.0;
         }
-        (360.0 * 2.54) / (dpi * cm_360 * game.yaw)
+        game.sens_for((360.0 * 2.54) / (dpi * cm_360))
     }
 
     /// Convert cm/360° and DPI into camera rotation angle (radians per mouse count)

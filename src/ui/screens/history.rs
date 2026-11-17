@@ -1,6 +1,9 @@
 use egui::{vec2, Align, Layout, RichText};
+use egui_phosphor::regular as icon;
 
-use crate::data::{SessionHistory, SessionRecord};
+use crate::data::{MetricPoint, SessionHistory, SessionRecord};
+use crate::sensitivity::converter::SensitivityConverter;
+use crate::sensitivity::games::{GameProfile, ScopedSetting};
 use crate::ui::screens::{header, section};
 use crate::ui::theme::*;
 use crate::ui::{graphs, widgets, UiAction, UiModel, UiState};
@@ -16,12 +19,117 @@ pub fn rows(h: &SessionHistory) -> Vec<&SessionRecord> {
     v
 }
 
-/// The row to show details for: the chosen one if it exists, else the newest.
-pub fn selected_index(len: usize, selected: Option<usize>) -> Option<usize> {
-    (len > 0).then(|| selected.filter(|&i| i < len).unwrap_or(0))
+pub fn find_session<'a>(h: &'a SessionHistory, id: &str) -> Option<&'a SessionRecord> {
+    h.sessions.iter().find(|s| s.session_id == id)
 }
 
-fn cells(ui: &mut egui::Ui, values: [RichText; 5]) {
+/// "41 s" under a minute, "2:05" from a minute up.
+pub fn duration_text(secs: f32) -> String {
+    let total = secs.max(0.0).round() as u32;
+    if total < 60 {
+        format!("{total} s")
+    } else {
+        format!("{}:{:02}", total / 60, total % 60)
+    }
+}
+
+/// Longest run of consecutive hits. Counted from the shots because sessions are saved with
+/// `max_streak` 0.
+pub fn best_streak(points: &[MetricPoint]) -> u32 {
+    points
+        .iter()
+        .scan(0u32, |run, p| {
+            *run = if p.hit { *run + 1 } else { 0 };
+            Some(*run)
+        })
+        .max()
+        .unwrap_or(0)
+}
+
+/// A session's sensitivity as one game's in-game value.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GameValue {
+    /// Game id from `data/games.json`; picks the logo.
+    pub id: String,
+    pub name: String,
+    pub sens: f64,
+    /// The player's own game; listed first.
+    pub main: bool,
+    pub scoped: Vec<ScopedSetting>,
+    pub scoped_note: Option<String>,
+}
+
+/// The session's cm/360 at the session's own DPI in every game, the player's main game first.
+pub fn game_values(s: &SessionRecord, games: &[GameProfile], main_id: &str) -> Vec<GameValue> {
+    let mut v: Vec<GameValue> = games
+        .iter()
+        .map(|g| GameValue {
+            id: g.id.clone(),
+            name: g.name.clone(),
+            sens: SensitivityConverter::cm_360_to_game_sens(g, s.tested_dpi, s.tested_cm_360),
+            main: g.id == main_id,
+            scoped: g.scoped.clone(),
+            scoped_note: g.scoped_note.clone(),
+        })
+        .collect();
+    // Stable: the other games keep their order.
+    v.sort_by_key(|g| !g.main);
+    v
+}
+
+/// One tile on a session's detail page.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DetailStat {
+    pub label: &'static str,
+    pub value: String,
+    pub unit: Option<&'static str>,
+    pub caption: String,
+}
+
+fn stat(label: &'static str, value: String, unit: Option<&'static str>, caption: String) -> DetailStat {
+    DetailStat { label, value, unit, caption }
+}
+
+/// The tiles of a session's detail page, in display order. Values a session didn't record
+/// (no shots, e.g. tracking) show "—".
+pub fn detail_stats(s: &SessionRecord) -> Vec<DetailStat> {
+    let m = &s.metrics;
+    let shots = m.total_shots > 0;
+    let hit = m.hits > 0;
+    let dash = || "—".to_string();
+    vec![
+        stat("Score", m.total_score.to_string(), None, s.task_type.clone()),
+        stat(
+            "Accuracy",
+            if shots { format!("{:.0}", m.accuracy_pct) } else { dash() },
+            shots.then_some("%"),
+            format!("{} of {} hit", m.hits, m.total_shots),
+        ),
+        stat(
+            "Reaction time",
+            if hit { format!("{:.0}", m.avg_reaction_time_ms) } else { dash() },
+            hit.then_some("ms"),
+            if hit { format!("Median {:.0} ms", m.median_reaction_time_ms) } else { "No hits".into() },
+        ),
+        stat("Sensitivity", format!("{:.1}", s.tested_cm_360), Some("cm/360"), format!("{:.0} DPI", s.tested_dpi)),
+        stat("Duration", duration_text(s.duration_secs), None, "Time played".into()),
+        stat(
+            "Best streak",
+            if shots { best_streak(&m.points).to_string() } else { dash() },
+            None,
+            "Hits in a row".into(),
+        ),
+        stat("Shots", m.total_shots.to_string(), None, format!("{} missed", m.misses)),
+        stat(
+            "Avg. offset",
+            if hit { format!("{:.1}", m.avg_offset_m * 100.0) } else { dash() },
+            hit.then_some("cm"),
+            "From target centre on hits".into(),
+        ),
+    ]
+}
+
+fn cells(ui: &mut egui::Ui, cols: &[f32; 5], values: [RichText; 5]) {
     let width = ui.available_width();
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
@@ -31,16 +139,39 @@ fn cells(ui: &mut egui::Ui, values: [RichText; 5]) {
             } else {
                 Layout::right_to_left(Align::Center)
             };
-            ui.allocate_ui_with_layout(vec2(width * COLS[i], 20.0), layout, |ui| {
-                ui.set_width(width * COLS[i]);
+            ui.allocate_ui_with_layout(vec2(width * cols[i], 20.0), layout, |ui| {
+                ui.set_width(width * cols[i]);
                 ui.add(egui::Label::new(v).truncate());
             });
         }
     });
 }
 
+fn table_header(ui: &mut egui::Ui, cols: &[f32; 5], names: [&str; 5]) {
+    ui.horizontal(|ui| {
+        ui.add_space(S4);
+        ui.vertical(|ui| {
+            ui.set_width(ui.available_width() - S4);
+            let muted = |s: &str| RichText::new(s).font(body(12.0)).color(TEXT_MUTED);
+            cells(ui, cols, names.map(muted));
+        });
+    });
+    ui.add_space(S1);
+}
+
+fn when(s: &SessionRecord, fmt: &str) -> String {
+    s.timestamp.with_timezone(&chrono::Local).format(fmt).to_string()
+}
+
 pub fn show(ui: &mut egui::Ui, state: &mut UiState, model: &UiModel, _actions: &mut Vec<UiAction>) {
-    header(ui, "History", Some("Every finished calibration and practice run."));
+    if let Some(id) = state.open_session.clone() {
+        match find_session(model.history, &id) {
+            Some(s) => return detail(ui, state, model, s),
+            None => state.open_session = None,
+        }
+    }
+
+    header(ui, "History", Some("Every finished calibration and practice run. Click one to see its details."));
     let all = rows(model.history);
     if all.is_empty() {
         widgets::card(ui, |ui| {
@@ -55,28 +186,16 @@ pub fn show(ui: &mut egui::Ui, state: &mut UiState, model: &UiModel, _actions: &
         return;
     }
 
-    let shown = &all[..all.len().min(MAX_ROWS)];
-    let sel = selected_index(shown.len(), state.selected_session);
-
-    ui.horizontal(|ui| {
-        ui.add_space(S4);
-        ui.vertical(|ui| {
-            ui.set_width(ui.available_width() - S4);
-            let muted = |s: &str| RichText::new(s).font(body(12.0)).color(TEXT_MUTED);
-            cells(ui, [muted("Scenario"), muted("Date"), muted("Score"), muted("Accuracy"), muted("cm/360")]);
-        });
-    });
-    ui.add_space(S1);
-    for (i, s) in shown.iter().enumerate() {
-        let resp = widgets::clickable_row(ui, sel == Some(i), |ui| {
+    table_header(ui, &COLS, ["Scenario", "Date", "Score", "Accuracy", "cm/360"]);
+    for s in all.iter().take(MAX_ROWS) {
+        let resp = widgets::clickable_row(ui, false, |ui| {
             ui.set_min_width(ui.available_width());
             cells(
                 ui,
+                &COLS,
                 [
                     RichText::new(&s.task_type).font(medium(13.0)).color(TEXT),
-                    RichText::new(s.timestamp.with_timezone(&chrono::Local).format("%b %d %H:%M").to_string())
-                        .font(body(13.0))
-                        .color(TEXT_SECONDARY),
+                    RichText::new(when(s, "%b %d %H:%M")).font(body(13.0)).color(TEXT_SECONDARY),
                     RichText::new(s.metrics.total_score.to_string()).font(display(14.0)).color(TEXT),
                     RichText::new(format!("{:.0}%", s.metrics.accuracy_pct)).font(display(14.0)).color(TEXT),
                     RichText::new(format!("{:.1}", s.tested_cm_360)).font(display(14.0)).color(TEXT),
@@ -84,7 +203,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut UiState, model: &UiModel, _actions: &
             );
         });
         if resp.clicked() {
-            state.selected_session = Some(i);
+            state.open_session = Some(s.session_id.clone());
         }
     }
     if all.len() > MAX_ROWS {
@@ -94,32 +213,74 @@ pub fn show(ui: &mut egui::Ui, state: &mut UiState, model: &UiModel, _actions: &
                 .color(TEXT_MUTED),
         );
     }
+}
 
-    if let Some(s) = sel.map(|i| shown[i]) {
-        ui.add_space(S6);
-        section(ui, "Reaction time");
-        ui.label(
-            RichText::new(format!(
-                "{} · {}",
-                s.task_type,
-                s.timestamp.with_timezone(&chrono::Local).format("%b %d %H:%M")
-            ))
-            .font(body(13.0))
-            .color(TEXT_SECONDARY),
-        );
-        ui.add_space(S2);
-        widgets::card(ui, |ui| {
-            ui.set_min_width(ui.available_width());
-            let rts: Vec<f32> = s.metrics.points.iter().map(|p| p.reaction_time_ms).collect();
-            if rts.is_empty() {
-                ui.label(
-                    RichText::new("No shots were recorded in this session.")
-                        .font(body(13.0))
-                        .color(TEXT_MUTED),
-                );
-            } else {
-                graphs::reaction_times(ui, &rts);
+fn detail(ui: &mut egui::Ui, state: &mut UiState, model: &UiModel, s: &SessionRecord) {
+    if widgets::ghost_button(ui, Some(icon::ARROW_LEFT), "All sessions").clicked() {
+        state.open_session = None;
+    }
+    ui.add_space(S3);
+    let subtitle = when(s, "%A, %b %d %Y · %H:%M");
+    header(ui, &s.task_type, Some(&subtitle));
+
+    let stats = detail_stats(s);
+    for row in stats.chunks(4) {
+        ui.columns(row.len(), |cols| {
+            for (col, st) in cols.iter_mut().zip(row) {
+                widgets::stat_card(col, st.label, &st.value, st.unit, &st.caption);
             }
         });
+        ui.add_space(S3);
+    }
+
+    let points = &s.metrics.points;
+    ui.add_space(S3);
+    section(ui, "Reaction time per shot");
+    widgets::card(ui, |ui| {
+        ui.set_min_width(ui.available_width());
+        if points.is_empty() {
+            ui.label(RichText::new("No shots were recorded in this session.").font(body(13.0)).color(TEXT_MUTED));
+        } else {
+            let rts: Vec<f32> = points.iter().map(|p| p.reaction_time_ms).collect();
+            graphs::reaction_times(ui, &rts);
+        }
+    });
+
+    ui.add_space(S6);
+    section(ui, "Sensitivity in each game");
+    ui.label(
+        RichText::new(format!(
+            "This session's {:.1} cm/360° at {:.0} DPI, as each game's in-game value. Scoped settings keep aim near the crosshair feeling the same zoomed in.",
+            s.tested_cm_360, s.tested_dpi
+        ))
+        .font(body(13.0))
+        .color(TEXT_SECONDARY),
+    );
+    ui.add_space(S3);
+    let values = game_values(s, model.games, &model.profile.primary_game_id);
+    for (r, pair) in values.chunks(2).enumerate() {
+        // Both cards of a row take the taller one's height, measured on the frame before.
+        let id = ui.id().with(("game_row_height", r));
+        let row_height: f32 = ui.ctx().data(|d| d.get_temp(id)).unwrap_or(0.0);
+        let mut tallest = 0.0_f32;
+        ui.columns(2, |cols| {
+            for (col, g) in cols.iter_mut().zip(pair) {
+                let card = widgets::GameCard {
+                    game_id: &g.id,
+                    name: &g.name,
+                    sens: g.sens,
+                    main: g.main,
+                    scoped: &g.scoped,
+                    scoped_note: g.scoped_note.as_deref(),
+                };
+                let h = widgets::game_card(col, &card, row_height);
+                tallest = tallest.max(h);
+            }
+        });
+        if (tallest - row_height).abs() > 0.5 {
+            ui.ctx().data_mut(|d| d.insert_temp(id, tallest));
+            ui.ctx().request_repaint();
+        }
+        ui.add_space(S2);
     }
 }

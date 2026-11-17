@@ -1,6 +1,8 @@
 //! Calibration-session state and the small pure helpers the UI needs around it.
 
+use crate::game::calibration_run::CalibrationRun;
 use crate::game::tasks::TaskState;
+use crate::sensitivity::combiner::TestKind;
 use crate::sensitivity::games::GameProfile;
 use crate::sensitivity::psa::{PsaCalibrator, PsaRoundConclusion};
 
@@ -65,9 +67,17 @@ pub struct CalibrationProgress {
     pub testing_cm_360: f64,
     pub low_cm_360: f64,
     pub high_cm_360: f64,
+    /// Flick-only search: shots in the round. Multi-test run: 1-based segment of the warm-up
+    /// or block, out of `shots_per_round` segments.
     pub shot_in_round: usize,
     pub shots_per_round: usize,
     pub completed: bool,
+    /// The test being played (multi-test run only).
+    pub segment_label: Option<&'static str>,
+    /// What that test wants from the player, shown during the countdown before it.
+    pub segment_hint: Option<&'static str>,
+    /// Playing the warm-up at the player's own sensitivity.
+    pub warmup: bool,
 }
 
 impl CalibrationProgress {
@@ -81,7 +91,47 @@ impl CalibrationProgress {
             shot_in_round: psa.shots_in_round(),
             shots_per_round: psa.shots_per_round(),
             completed: psa.is_completed,
+            segment_label: None,
+            segment_hint: None,
+            warmup: false,
         }
+    }
+
+    /// The speed being tested, as the HUD shows it.
+    pub fn speed_text(&self) -> String {
+        format!("{:.1} cm", self.testing_cm_360)
+    }
+
+    /// `player_cm`: the sensitivity the warm-up runs at.
+    pub fn from_run(run: &CalibrationRun, player_cm: f64) -> Self {
+        let s = run.scheduler();
+        Self {
+            // No round is in progress during the warm-up.
+            round: if run.in_warmup() { 0 } else { run.block_number() },
+            max_rounds: run.blocks(),
+            testing_cm_360: run.test_cm(player_cm),
+            low_cm_360: s.low_cm_360,
+            high_cm_360: s.high_cm_360,
+            shot_in_round: (run.segment_index() + 1).min(run.segments_in_phase()),
+            shots_per_round: run.segments_in_phase(),
+            completed: run.is_completed(),
+            segment_label: run.segment().map(|seg| seg.kind.label()),
+            segment_hint: run.segment().map(|seg| segment_hint(seg.kind, seg.counted)),
+            warmup: run.in_warmup(),
+        }
+    }
+}
+
+/// One line telling the player what the next calibration segment wants.
+pub fn segment_hint(kind: TestKind, counted: bool) -> &'static str {
+    match (kind, counted) {
+        (TestKind::Flick, false) => "A few shots to get used to this sensitivity",
+        (TestKind::Flick, true) => "Shoot each target as it appears",
+        (TestKind::Micro, _) => "Small targets close to your crosshair",
+        (TestKind::Tracking, _) => "Keep your crosshair on the moving target",
+        (TestKind::Recoil, _) => "Hold fire and pull down to stay on target",
+        (TestKind::Placement, _) => "Aim at the corner before the target peeks",
+        (TestKind::Strafe, _) => "Stop moving before you shoot",
     }
 }
 

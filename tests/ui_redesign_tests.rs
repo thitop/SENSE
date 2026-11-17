@@ -42,6 +42,10 @@ fn calibration_result_round_trips() {
         rounds: rounds.clone(),
         samples: vec![(47.5, 60.0), (63.75, 55.0), (55.0, 70.0)],
         at: Utc::now(),
+        diagnostics: None,
+        pooled_runs: 1,
+        no_answer: false,
+        runs_disagree: false,
     });
 
     let json = serde_json::to_string(&p).unwrap();
@@ -69,7 +73,11 @@ fn game(id: &str) -> GameProfile {
         id: id.into(),
         name: id.to_uppercase(),
         yaw: 0.022,
+        yaw_offset: 0.0,
         default_fov: 103.0,
+        scoped: Vec::new(),
+        scoped_note: None,
+        scale: aim_trainer::sensitivity::games::SensScale::Linear,
     }
 }
 
@@ -334,7 +342,9 @@ impl Fixture {
             current_cm_360: self.profile.current_cm_360,
             audio_enabled: true,
             volume: 0.5,
+            music_volume: 0.5,
             fps: 240,
+            offscreen_targets: &[],
         }
     }
 }
@@ -417,6 +427,10 @@ fn sample_calibration() -> CalibrationResult {
         ],
         samples: (0..12).map(|i| (30.0 + i as f64, 50.0 + i as f64)).collect(),
         at: Utc::now(),
+        diagnostics: None,
+        pooled_runs: 1,
+        no_answer: false,
+        runs_disagree: false,
     }
 }
 
@@ -487,12 +501,133 @@ fn history_renders_empty_and_with_sessions() {
         fx.history
             .add_session(session_at(now - Duration::hours(i as i64), task));
     }
-    for selected in [None, Some(0), Some(99)] {
-        let mut state = UiState::new();
-        state.screen = Screen::History;
-        state.selected_session = selected;
-        assert!(render_with(&mut state, &fx, SIZES[1]).is_empty());
+    let opened = fx.history.sessions[1].session_id.clone();
+    for open in [None, Some(opened.clone()), Some("gone".to_string())] {
+        for size in SIZES {
+            let mut state = UiState::new();
+            state.screen = Screen::History;
+            state.open_session = open.clone();
+            assert!(render_with(&mut state, &fx, size).is_empty());
+            // A session that no longer exists (other profile, trimmed history) closes back to the list.
+            let expected = if open.as_deref() == Some("gone") { None } else { open.clone() };
+            assert_eq!(state.open_session, expected);
+        }
     }
+}
+
+#[test]
+fn history_detail_finds_the_session_and_formats_its_stats() {
+    use aim_trainer::ui::screens::history::{detail_stats, duration_text, find_session};
+    let now = Utc::now();
+    let mut h = SessionHistory::new("p".into());
+    let mut flick = session_at(now, "Flick Shot");
+    let points = (0..4)
+        .map(|n| aim_trainer::data::MetricPoint {
+            shot_number: n + 1,
+            hit: n != 2,
+            reaction_time_ms: 400.0 + n as f32 * 10.0,
+            offset_from_center_m: 0.1,
+            target_radius_m: 0.35,
+            precision_percent: 80.0,
+            mouse_distance_px: 300.0,
+            peak_velocity_px_s: 1500.0,
+        })
+        .collect();
+    flick.metrics = AggregatedTaskMetrics::compute(points, 9000, 0);
+    h.add_session(flick);
+    let id = h.sessions[0].session_id.clone();
+    assert_eq!(find_session(&h, &id).map(|s| s.task_type.as_str()), Some("Flick Shot"));
+    assert!(find_session(&h, "missing").is_none());
+
+    assert_eq!(duration_text(41.4), "41 s");
+    assert_eq!(duration_text(125.0), "2:05");
+    assert_eq!(duration_text(0.0), "0 s");
+
+    let s = &h.sessions[0];
+    let stats = detail_stats(s);
+    let labels: Vec<_> = stats.iter().map(|st| st.label).collect();
+    assert_eq!(
+        labels,
+        ["Score", "Accuracy", "Reaction time", "Sensitivity", "Duration", "Best streak", "Shots", "Avg. offset"]
+    );
+    let accuracy = &stats[1];
+    assert_eq!(accuracy.value, format!("{:.0}", s.metrics.accuracy_pct));
+    assert_eq!(accuracy.caption, format!("{} of {} hit", s.metrics.hits, s.metrics.total_shots));
+    let sens = &stats[3];
+    assert_eq!(sens.value, format!("{:.1}", s.tested_cm_360));
+    assert_eq!(sens.caption, format!("{:.0} DPI", s.tested_dpi));
+    // Hit, hit, miss, hit: counted from the shots, not the stored `max_streak`.
+    assert_eq!(stats[5].value, "2");
+}
+
+#[test]
+fn history_detail_lists_the_sessions_sensitivity_in_every_game_main_first() {
+    use aim_trainer::sensitivity::converter::SensitivityConverter;
+    use aim_trainer::ui::screens::history::game_values;
+    let db = GameDatabase::new();
+    let games = db.list();
+    let mut s = session_at(Utc::now(), "Calibration");
+    s.tested_cm_360 = 39.6;
+    s.tested_dpi = 800.0;
+
+    let rows = game_values(&s, games, "valorant");
+    assert_eq!(rows.len(), games.len());
+    assert_eq!(rows[0].name, "Valorant");
+    assert!(rows[0].main);
+    assert!(rows[1..].iter().all(|r| !r.main));
+    for r in &rows {
+        let g = games.iter().find(|g| g.name == r.name).unwrap();
+        assert_eq!(r.sens, SensitivityConverter::cm_360_to_game_sens(g, 800.0, 39.6));
+    }
+    // CS2 at 39.6 cm/360 and 800 DPI.
+    let cs2 = rows.iter().find(|r| r.name.starts_with("Counter-Strike")).unwrap();
+    assert!((cs2.sens - 1.312).abs() < 0.001, "{}", cs2.sens);
+
+    // The session's own DPI counts, not the profile's: the same cm/360 at 1600 DPI halves it.
+    s.tested_dpi = 1600.0;
+    let cs2_1600 = game_values(&s, games, "valorant").into_iter().find(|r| r.name.starts_with("Counter-Strike")).unwrap();
+    assert!((cs2_1600.sens - cs2.sens / 2.0).abs() < 1e-9);
+
+    // An unknown main game just leaves the list in its own order.
+    let rows = game_values(&s, games, "nope");
+    assert!(rows.iter().all(|r| !r.main));
+    assert_eq!(rows[0].name, games[0].name);
+}
+
+#[test]
+fn best_streak_counts_consecutive_hits() {
+    use aim_trainer::ui::screens::history::best_streak;
+    let shots = |hits: &[bool]| -> Vec<aim_trainer::data::MetricPoint> {
+        hits.iter()
+            .enumerate()
+            .map(|(i, &hit)| aim_trainer::data::MetricPoint {
+                shot_number: i as u32 + 1,
+                hit,
+                reaction_time_ms: 400.0,
+                offset_from_center_m: 0.1,
+                target_radius_m: 0.35,
+                precision_percent: 80.0,
+                mouse_distance_px: 300.0,
+                peak_velocity_px_s: 1500.0,
+            })
+            .collect()
+    };
+    assert_eq!(best_streak(&[]), 0);
+    assert_eq!(best_streak(&shots(&[false, false])), 0);
+    assert_eq!(best_streak(&shots(&[true, true, false, true, true, true, false])), 3);
+}
+
+#[test]
+fn history_detail_without_shots_shows_dashes() {
+    use aim_trainer::ui::screens::history::detail_stats;
+    let mut s = session_at(Utc::now(), "Smooth Tracking");
+    s.metrics = AggregatedTaskMetrics::compute(Vec::new(), 4200, 0);
+    let stats = detail_stats(&s);
+    let value = |label: &str| stats.iter().find(|st| st.label == label).unwrap().value.clone();
+    assert_eq!(value("Reaction time"), "—");
+    assert_eq!(value("Accuracy"), "—");
+    assert_eq!(value("Avg. offset"), "—");
+    assert_eq!(value("Score"), "4200");
 }
 
 #[test]
@@ -561,8 +696,8 @@ fn hud_renders_each_state() {
 }
 
 #[test]
-fn history_rows_are_newest_first_and_selection_clamps() {
-    use aim_trainer::ui::screens::history::{rows, selected_index};
+fn history_rows_are_newest_first() {
+    use aim_trainer::ui::screens::history::rows;
     let now = Utc::now();
     let mut h = SessionHistory::new("p".into());
     h.add_session(session_at(now - Duration::hours(2), "Old"));
@@ -571,10 +706,6 @@ fn history_rows_are_newest_first_and_selection_clamps() {
     let r = rows(&h);
     let names: Vec<_> = r.iter().map(|s| s.task_type.as_str()).collect();
     assert_eq!(names, ["New", "Mid", "Old"]);
-    assert_eq!(selected_index(3, None), Some(0));
-    assert_eq!(selected_index(3, Some(2)), Some(2));
-    assert_eq!(selected_index(3, Some(99)), Some(0));
-    assert_eq!(selected_index(0, Some(1)), None);
 }
 
 #[test]
@@ -659,7 +790,7 @@ fn shot(pattern: ShotTrajectoryPattern) -> aim_trainer::sensitivity::ShotMovemen
         total_mouse_distance: 300.0,
         peak_velocity: 1500.0,
         direction_changes: 0,
-        pattern,
+        pattern: Some(pattern),
     }
 }
 
@@ -728,4 +859,129 @@ fn current_metrics_reports_running_task() {
     let m = tm.current_metrics();
     assert_eq!(m.task_name, "Calibration");
     assert_eq!(m.shots_fired, 0);
+}
+
+// ---------- Per-test rows on the result screen ----------
+
+#[test]
+fn per_test_rows_say_no_trend_instead_of_huge_ranges() {
+    use aim_trainer::data::EstimateRecord;
+    use aim_trainer::ui::screens::sensitivity::estimate_text;
+    let est = |cm_360, rel_uncertainty| EstimateRecord { test: "Micro-adjustment".into(), cm_360, rel_uncertainty };
+    assert_eq!(estimate_text(&est(32.4, 0.12), false), "32.4 ±12%");
+    assert_eq!(estimate_text(&est(35.0, 1960.0), false), "no trend");
+    assert_eq!(estimate_text(&est(32.4, 0.12), true), "left out");
+}
+
+#[test]
+fn pooled_results_say_how_many_runs_they_combine() {
+    use aim_trainer::ui::screens::sensitivity::pooled_caption;
+    assert_eq!(pooled_caption(1), None);
+    assert_eq!(pooled_caption(3).as_deref(), Some("Combined from your last 3 runs"));
+}
+
+#[test]
+fn score_graph_marks_the_result() {
+    use aim_trainer::ui::screens::sensitivity::curve_marker;
+    // The score graph marks the result itself, never the per-shot score fit: in real play that
+    // fit fell back to the single best shot (31.3 cm) under a 39.6 cm result.
+    let mut cal = CalibrationResult {
+        cm_360: 39.6,
+        confidence: 0.77,
+        psa_cm: Some(39.6),
+        stat_cm: Some(31.25),
+        rounds: vec![],
+        samples: vec![(31.25, 99.0), (39.6, 85.0)],
+        at: Utc::now(),
+        diagnostics: None,
+        pooled_runs: 3,
+        no_answer: false,
+        runs_disagree: false,
+    };
+    assert_eq!(curve_marker(&cal), Some(39.6));
+    cal.no_answer = true;
+    assert_eq!(curve_marker(&cal), None);
+}
+
+#[test]
+fn results_without_an_answer_say_so() {
+    use aim_trainer::ui::screens::sensitivity::result_note;
+    assert_eq!(result_note(false, false), None);
+    assert!(result_note(true, false).unwrap().starts_with("No clear answer"));
+    assert!(result_note(false, true).unwrap().contains("disagree"));
+}
+
+#[test]
+fn sensitivity_screen_without_an_answer_renders_without_actions() {
+    let mut p = onboarded_profile();
+    let mut cal = sample_calibration();
+    cal.no_answer = true;
+    p.last_calibration = Some(cal);
+    let fx = Fixture::new(p);
+    let mut state = UiState::new();
+    state.screen = Screen::Sensitivity;
+    for size in SIZES {
+        assert!(render_with(&mut state, &fx, size).is_empty());
+    }
+}
+
+#[test]
+fn home_card_shows_no_number_without_an_answer() {
+    use aim_trainer::ui::screens::home::last_result_card;
+    let mut cal = sample_calibration();
+    assert_eq!(last_result_card(None).0, "—");
+    assert_eq!(last_result_card(Some(&cal)).0, format!("{:.1}", cal.cm_360));
+    cal.no_answer = true;
+    assert_eq!(last_result_card(Some(&cal)), ("—".to_string(), "No clear answer".to_string()));
+}
+
+#[test]
+fn sensitivity_screen_start_button_starts_calibration() {
+    use aim_trainer::ui::UiAction;
+    let fx = Fixture::new(onboarded_profile());
+    let mut state = UiState::new();
+    state.screen = Screen::Sensitivity;
+    let model = fx.model();
+    let actions = click_labelled(&mut state, &model, "Start calibration");
+    assert_eq!(actions, [UiAction::StartCalibration]);
+}
+
+/// Render the UI, find the drawn text containing `label`, click its centre, and return the
+/// actions of the frame the click lands in.
+fn click_labelled(state: &mut UiState, model: &UiModel, label: &str) -> Vec<aim_trainer::ui::UiAction> {
+    // Tall enough that nothing the screens draw is scrolled out of view (egui skips it).
+    let size = egui::vec2(1280.0, 3000.0);
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let input = |events: Vec<egui::Event>| egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+        events,
+        ..Default::default()
+    };
+    let _ = ctx.run(input(vec![]), |_| {});
+    let out = ctx.run(input(vec![]), |ctx| {
+        render_ui(ctx, state, model);
+    });
+    let center = out
+        .shapes
+        .iter()
+        .find_map(|s| match &s.shape {
+            egui::Shape::Text(t) if t.galley.text().contains(label) => Some(t.visual_bounding_rect().center()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no text {label:?} on screen"));
+    let button = |pressed| egui::Event::PointerButton {
+        pos: center,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    };
+    let _ = ctx.run(input(vec![egui::Event::PointerMoved(center), button(true)]), |ctx| {
+        render_ui(ctx, state, model);
+    });
+    let mut actions = Vec::new();
+    let _ = ctx.run(input(vec![button(false)]), |ctx| {
+        actions = render_ui(ctx, state, model);
+    });
+    actions
 }

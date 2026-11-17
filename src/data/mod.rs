@@ -2,14 +2,16 @@ pub mod calibration;
 pub mod history;
 pub mod metrics;
 pub mod profile;
+pub mod settings;
 
 use std::fs;
 use std::path::PathBuf;
 
-pub use calibration::{CalibrationResult, CalibrationRound};
+pub use calibration::{CalibrationResult, CalibrationRound, EstimateRecord, PairRecord, RoundSignals, RunDiagnostics};
 pub use history::{SessionHistory, SessionRecord};
 pub use metrics::{AggregatedTaskMetrics, MetricPoint};
 pub use profile::{PlayerProfile, ProfileManager};
+pub use settings::AppSettings;
 
 pub struct DataManager {
     base_dir: PathBuf,
@@ -35,6 +37,29 @@ impl DataManager {
             }
         }
         PathBuf::from("data").join("storage")
+    }
+
+    fn settings_file(&self) -> PathBuf {
+        self.base_dir.join("settings.json")
+    }
+
+    /// The app-wide settings saved last time (the defaults on a first launch).
+    pub fn load_settings(&self) -> AppSettings {
+        AppSettings::load_from(&self.settings_file())
+    }
+
+    pub fn save_settings(&self, settings: &AppSettings) -> std::io::Result<()> {
+        settings.save_to(&self.settings_file())
+    }
+
+    /// Keep a copy of every finished calibration with its per-test diagnostics, one file per
+    /// run, so runs can be compared later. Returns the file written.
+    pub fn archive_calibration(&self, profile_id: &str, result: &CalibrationResult) -> std::io::Result<PathBuf> {
+        let dir = self.base_dir.join("calibrations");
+        fs::create_dir_all(&dir)?;
+        let file = dir.join(format!("{}_{}.json", profile_id, result.at.format("%Y%m%d_%H%M%S")));
+        fs::write(&file, serde_json::to_string_pretty(result)?)?;
+        Ok(file)
     }
 
     /// Load history for a given profile

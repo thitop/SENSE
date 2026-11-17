@@ -1,12 +1,136 @@
 //! Small themed building blocks shared by every screen.
 
 use egui::{
-    vec2, Align2, CornerRadius, CursorIcon, Frame, InnerResponse, Margin, Response, RichText,
+    vec2, Align, Align2, CornerRadius, CursorIcon, Frame, InnerResponse, Layout, Margin, Response, RichText,
     Sense, Stroke, StrokeKind, Ui, WidgetInfo, WidgetType,
 };
 
 use super::theme::*;
 use crate::game::calibration::ConfidenceLevel;
+use crate::sensitivity::games::ScopedSetting;
+
+/// Scoped settings as they're laid out: per-scope values of one setting sit under that
+/// setting's name; settings without a scope are listed as setting = value.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScopedGroup {
+    pub heading: Option<String>,
+    /// (label, value)
+    pub rows: Vec<(String, String)>,
+}
+
+pub fn scoped_groups(settings: &[ScopedSetting]) -> Vec<ScopedGroup> {
+    let mut groups: Vec<ScopedGroup> = Vec::new();
+    for s in settings {
+        let heading = s.scope.as_ref().map(|_| s.setting.clone());
+        let row = (s.scope.clone().unwrap_or_else(|| s.setting.clone()), s.value.clone());
+        match groups.last_mut() {
+            Some(g) if g.heading == heading => g.rows.push(row),
+            _ => groups.push(ScopedGroup { heading, rows: vec![row] }),
+        }
+    }
+    groups
+}
+
+const KV_ROW_HEIGHT: f32 = 20.0;
+/// Game logos on cards, in points.
+pub const LOGO_SIZE: f32 = 20.0;
+
+/// Label on the left, value right-aligned, on one compact line.
+fn kv_row(ui: &mut Ui, label: &str, value: &str) {
+    let width = ui.available_width();
+    ui.allocate_ui_with_layout(vec2(width, KV_ROW_HEIGHT), Layout::left_to_right(Align::Center), |ui| {
+        ui.set_width(width);
+        ui.add(egui::Label::new(RichText::new(label).font(body(12.0)).color(TEXT_SECONDARY)).truncate());
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.label(RichText::new(value).font(display(13.0)).color(TEXT));
+        });
+    });
+}
+
+/// A thin rule across the available width.
+pub fn divider(ui: &mut Ui) {
+    ui.add_space(S2);
+    let x = ui.available_rect_before_wrap().x_range();
+    let y = ui.cursor().top();
+    ui.painter().hline(x, y, Stroke::new(1.0_f32, BORDER));
+    ui.add_space(S2);
+}
+
+/// A game's scoped / ADS settings (0% monitor distance) under its hipfire value, with `note`
+/// (what the values assume) in small print after them.
+pub fn scoped_settings(ui: &mut Ui, settings: &[ScopedSetting], note: Option<&str>) {
+    divider(ui);
+    // A fixed-height line: `horizontal` would take a full control's height.
+    let width = ui.available_width();
+    ui.allocate_ui_with_layout(vec2(width, 14.0), Layout::left_to_right(Align::Center), |ui| {
+        ui.label(RichText::new("SCOPED / ADS").font(medium(10.0)).color(TEXT_MUTED));
+        if !settings.is_empty() {
+            ui.label(RichText::new("0% STANDARD").font(medium(10.0)).color(TEXT_FAINT));
+        }
+    });
+    ui.add_space(S1);
+    if settings.is_empty() {
+        ui.label(RichText::new("No verified value yet").font(body(12.0)).color(TEXT_FAINT));
+        return;
+    }
+    for g in scoped_groups(settings) {
+        if let Some(h) = &g.heading {
+            ui.label(RichText::new(h).font(body(11.0)).color(TEXT_MUTED));
+        }
+        for (label, value) in &g.rows {
+            kv_row(ui, label, value);
+        }
+    }
+    if let Some(note) = note {
+        ui.add_space(S1);
+        ui.add(egui::Label::new(RichText::new(note).font(body(11.0)).color(TEXT_FAINT)).wrap());
+    }
+}
+
+/// What one game card shows.
+pub struct GameCard<'a> {
+    pub game_id: &'a str,
+    pub name: &'a str,
+    pub sens: f64,
+    /// The player's own game: accent border, tag and logo.
+    pub main: bool,
+    pub scoped: &'a [ScopedSetting],
+    pub scoped_note: Option<&'a str>,
+}
+
+/// One game's values: logo and name (with a tag when it's the player's own game), the in-game
+/// sensitivity, then its scoped settings. Cards placed side by side pass the tallest card's
+/// height as `min_height` so a row lines up; returns this card's own content height.
+pub fn game_card(ui: &mut Ui, c: &GameCard, min_height: f32) -> f32 {
+    let GameCard { game_id, name, sens, main, scoped, scoped_note } = *c;
+    let content = |ui: &mut Ui| {
+        ui.set_min_width(ui.available_width());
+        let top = ui.cursor().top();
+        // Counted from the cursor, so it must come before the content.
+        ui.set_min_height(min_height);
+        let width = ui.available_width();
+        ui.allocate_ui_with_layout(vec2(width, 28.0), Layout::left_to_right(Align::Center), |ui| {
+            ui.set_width(width);
+            super::logos::logo(ui, game_id, LOGO_SIZE, if main { ACCENT } else { TEXT_SECONDARY });
+            ui.add_space(S1);
+            ui.add(egui::Label::new(RichText::new(name).font(medium(14.0)).color(TEXT)).truncate());
+            if main {
+                ui.label(RichText::new("YOUR GAME").font(medium(10.0)).color(ACCENT));
+            }
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.label(RichText::new(format!("{sens:.3}")).font(display_bold(20.0)).color(TEXT));
+            });
+        });
+        scoped_settings(ui, scoped, scoped_note);
+        // The cursor only moves with content, so this is the card's own height.
+        ui.cursor().top() - top
+    };
+    if main {
+        highlight_card(ui, content).inner
+    } else {
+        card(ui, content).inner
+    }
+}
 
 #[derive(Clone, Copy)]
 enum Kind {
@@ -101,13 +225,6 @@ fn card_frame(border: egui::Color32) -> Frame {
 
 pub fn card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> InnerResponse<R> {
     card_frame(BORDER).show(ui, add)
-}
-
-/// Low card for one line of content, e.g. a game and its value.
-pub fn row_card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> InnerResponse<R> {
-    card_frame(BORDER)
-        .inner_margin(Margin::symmetric(S3 as i8, S1 as i8))
-        .show(ui, add)
 }
 
 /// Card with an accent border, for the player's own game.

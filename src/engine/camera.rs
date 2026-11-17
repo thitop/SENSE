@@ -1,4 +1,4 @@
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Vec2, Vec3};
 
 pub struct Camera {
     pub position: Vec3,
@@ -16,12 +16,15 @@ impl Camera {
             position: Vec3::new(0.0, 1.5, 0.0), // ~eye height 1.5m
             yaw: -std::f32::consts::FRAC_PI_2,  // facing down -Z axis
             pitch: 0.0,
-            fov_y_rad: 70.0_f32.to_radians(), // 70 deg vertical FOV (approx 103 horizontal 16:9 like Valorant/Overwatch)
+            fov_y_rad: Self::BASE_FOV_Y_DEG.to_radians(),
             aspect_ratio,
             z_near: 0.01,
             z_far: 200.0,
         }
     }
+
+    /// Vertical FOV: ≈103° horizontal at 16:9, like Valorant and Overwatch.
+    pub const BASE_FOV_Y_DEG: f32 = 70.0;
 
     pub fn update_aspect_ratio(&mut self, width: u32, height: u32) {
         if height > 0 {
@@ -69,5 +72,18 @@ impl Camera {
     pub fn view_proj_matrix(&self) -> Mat4 {
         self.proj_matrix() * self.view_matrix()
     }
-}
 
+    /// Where `point` sits relative to the view. `None` when it is inside the frame; otherwise
+    /// the screen-space direction (x right, y up, unit length) to turn toward it.
+    pub fn offscreen_direction(&self, point: Vec3) -> Option<Vec2> {
+        let v = point - self.position;
+        let (x, y, z) = (v.dot(self.right()), v.dot(self.up()), v.dot(self.forward()));
+        let tan_y = (self.fov_y_rad * 0.5).tan();
+        let tan_x = tan_y * self.aspect_ratio;
+        if z > 0.0 && (x / z).abs() <= tan_x && (y / z).abs() <= tan_y {
+            return None;
+        }
+        // Straight behind: no side is shorter, pick right.
+        Some(Vec2::new(x, y).try_normalize().unwrap_or(Vec2::X))
+    }
+}
