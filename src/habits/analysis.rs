@@ -489,6 +489,7 @@ pub fn calibration_habits(log: &AimLog, result_cm: f64) -> Vec<HabitFinding> {
         return Vec::new();
     }
     let at = result_cm.ln();
+    let near = 1.12f64.ln();
     let mut found: Vec<(f32, HabitFinding)> = Vec::new();
     for measure in Measure::ALL {
         let mut pts: Vec<(f64, f64, f64)> = Vec::new(); // (ln cm, statistic, weight)
@@ -517,13 +518,24 @@ pub fn calibration_habits(log: &AimLog, result_cm: f64) -> Vec<HabitFinding> {
         let my = pts.iter().map(|p| p.1 * p.2).sum::<f64>() / w;
         let sxx: f64 = pts.iter().map(|p| p.2 * (p.0 - mx) * (p.0 - mx)).sum();
         let sxy: f64 = pts.iter().map(|p| p.2 * (p.0 - mx) * (p.1 - my)).sum();
+        // Read the line only inside the sensitivities played: a slope is not extrapolated
+        // past the data, where it could cross a threshold nothing was measured at.
+        let lo = pts.iter().map(|p| p.0).fold(f64::INFINITY, f64::min);
+        let hi = pts.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max);
+        let at = at.clamp(lo, hi);
         let value = if sxx > 1e-9 { my + sxy / sxx * (at - mx) } else { my } as f32;
         if !value.is_finite() {
             continue;
         }
         for &habit in measure.habits() {
             if let Some(sev) = habit.severity(value) {
-                let direction = worst_direction(habit, log, counted);
+                // The direction is read near the result, like the value: a lean that shows
+                // only at other sensitivities belongs to those sensitivities.
+                let direction = worst_direction(habit, log, |c| {
+                    counted(c)
+                        && c.cm_360 > 0.0
+                        && (c.cm_360 as f64 / result_cm).ln().abs() <= near
+                });
                 found.push((sev, HabitFinding { habit, value, direction }));
             }
         }

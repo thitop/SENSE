@@ -349,3 +349,44 @@ fn miss_lean_needs_ten_misses() {
     let f = calibration_habits(&lean(4), 40.0);
     assert!(f.iter().any(|f| f.habit == Habit::MissLeanFlick), "{f:?}");
 }
+
+fn flick_at(offset: [f32; 2], landing: f32, c: PlayContext) -> TargetRecord {
+    TargetRecord { offset_deg: offset, ..flick(FlickBand::Far, landing, 1, c) }
+}
+
+#[test]
+fn direction_is_read_near_the_result_only() {
+    // Far from the result only the left flicks fall short; near it every direction does.
+    let dirs = [[-10.0, 0.0], [10.0, 0.0], [0.0, -10.0], [0.0, 10.0]];
+    let mut log = AimLog::default();
+    for (block, cm) in [(0u8, 20.0f32), (1, 26.0)] {
+        for (i, d) in dirs.iter().enumerate() {
+            for _ in 0..5 {
+                log.targets.push(flick_at(*d, if i == 0 { 0.5 } else { 1.0 }, ctx(cm, block)));
+            }
+        }
+    }
+    for (block, cm) in [(2u8, 40.0f32), (3, 41.0)] {
+        for d in &dirs {
+            for _ in 0..2 {
+                log.targets.push(flick_at(*d, 0.78, ctx(cm, block)));
+            }
+        }
+    }
+    let f = calibration_habits(&log, 40.0);
+    let found = f.iter().find(|f| f.habit == Habit::FlickShort(FlickBand::Far)).expect("named");
+    assert_eq!(found.direction, None, "{found:?}");
+}
+
+#[test]
+fn fit_is_not_extrapolated_past_the_data() {
+    // Landing falls with cm over 30..40; read at 80 cm a straight line would call it short.
+    let mut log = AimLog::default();
+    for (block, cm, landing) in [(0u8, 30.0f32, 1.0f32), (1, 33.0, 0.97), (2, 36.0, 0.93), (3, 40.0, 0.9)] {
+        for _ in 0..6 {
+            log.targets.push(flick_at([10.0, 0.0], landing, ctx(cm, block)));
+        }
+    }
+    let f = calibration_habits(&log, 80.0);
+    assert!(f.iter().all(|f| f.habit != Habit::FlickShort(FlickBand::Far)), "{f:?}");
+}
