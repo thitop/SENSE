@@ -174,6 +174,7 @@ fn sensitivity_texts(cal: CalibrationResult) -> Vec<String> {
         music_volume: 0.5,
         fps: 240,
         offscreen_targets: &[],
+        tracking: None,
     };
     let mut state = UiState::new();
     state.screen = Screen::Sensitivity;
