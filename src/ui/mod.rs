@@ -6,6 +6,7 @@ pub mod graphs;
 pub mod habits;
 pub mod hud;
 pub mod logos;
+pub mod replay;
 pub mod screens;
 pub mod theme;
 pub mod widgets;
