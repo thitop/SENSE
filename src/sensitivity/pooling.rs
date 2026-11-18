@@ -91,6 +91,23 @@ pub fn newest_agreeing<'a>(picked: &[&'a RunRecord]) -> Vec<&'a RunRecord> {
     picked[..n].to_vec()
 }
 
+/// The pool to show in place of the newest run alone, if any: the newest of `picked` that
+/// agree (see `newest_agreeing`), when that is more than one run and the pool is an answer.
+/// Agreeing isn't enough: wide runs agree with almost anything, and in real play 34.7 cm ±19%
+/// pooled with two wide runs came out at ±193%, clamped to the 15 cm edge of the search.
+/// Nor may the pool be wider than the newest run alone: pooling runs that measured the same
+/// thing narrows the answer, so a wider pool says they conflict. In real play 33.1 cm ±9%
+/// pooled with 46.2 ±26% came out at 43.0 ±37%.
+pub fn pooled_answer(picked: &[&RunRecord]) -> Option<Pooled> {
+    let agreeing = newest_agreeing(picked);
+    if agreeing.len() < 2 {
+        return None;
+    }
+    let pooled = pool(&agreeing).filter(|p| is_answer(p.rel_uncertainty))?;
+    let alone = pool(&agreeing[..1])?;
+    (pooled.rel_uncertainty <= alone.rel_uncertainty).then_some(pooled)
+}
+
 /// Drop runs too old to pool, and keep the list short.
 pub fn keep_recent(runs: &mut Vec<RunRecord>, now: DateTime<Utc>) {
     runs.retain(|r| now - r.at <= Duration::days(POOL_DAYS));
