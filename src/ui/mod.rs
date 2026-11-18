@@ -76,6 +76,8 @@ pub struct UiModel<'a> {
     pub fps: u32,
     /// Screen-space directions (x right, y up) to live targets outside the view.
     pub offscreen_targets: &'a [glam::Vec2],
+    /// Time on target of the tracking run in progress or just finished.
+    pub tracking: Option<crate::data::TrackingStats>,
 }
 
 /// First-run setup in progress.

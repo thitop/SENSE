@@ -106,6 +106,26 @@ pub fn habit_result_cm(s: &SessionRecord, profile: &crate::data::PlayerProfile) 
 /// (no shots, e.g. tracking) show "—".
 pub fn detail_stats(s: &SessionRecord) -> Vec<DetailStat> {
     let m = &s.metrics;
+    if let Some(t) = m.tracking {
+        return vec![
+            stat("Score", m.total_score.to_string(), None, s.task_type.clone()),
+            stat("On target", format!("{:.0}", t.on_target_pct), Some("%"), "Of the time".into()),
+            stat(
+                "Time on target",
+                format!("{:.1}", t.time_on_target_secs),
+                Some("s"),
+                format!("Of {}", duration_text(s.duration_secs)),
+            ),
+            stat(
+                "Longest on target",
+                format!("{:.1}", t.longest_on_target_secs),
+                Some("s"),
+                "Without slipping off".into(),
+            ),
+            stat("Sensitivity", format!("{:.1}", s.tested_cm_360), Some("cm/360"), format!("{:.0} DPI", s.tested_dpi)),
+            stat("Duration", duration_text(s.duration_secs), None, "Time played".into()),
+        ];
+    }
     let shots = m.total_shots > 0;
     let hit = m.hits > 0;
     let offsets = m.has_offsets();
@@ -255,17 +275,20 @@ fn detail(ui: &mut egui::Ui, state: &mut UiState, model: &UiModel, s: &SessionRe
     }
 
     let points = &s.metrics.points;
-    ui.add_space(S3);
-    section(ui, "Reaction time per shot");
-    widgets::card(ui, |ui| {
-        ui.set_min_width(ui.available_width());
-        if points.is_empty() {
-            ui.label(RichText::new("No shots were recorded in this session.").font(body(13.0)).color(TEXT_MUTED));
-        } else {
-            let rts: Vec<f32> = points.iter().map(|p| p.reaction_time_ms).collect();
-            graphs::reaction_times(ui, &rts);
-        }
-    });
+    // Tracking has no shots, so no reaction times to draw.
+    if s.metrics.tracking.is_none() {
+        ui.add_space(S3);
+        section(ui, "Reaction time per shot");
+        widgets::card(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            if points.is_empty() {
+                ui.label(RichText::new("No shots were recorded in this session.").font(body(13.0)).color(TEXT_MUTED));
+            } else {
+                let rts: Vec<f32> = points.iter().map(|p| p.reaction_time_ms).collect();
+                graphs::reaction_times(ui, &rts);
+            }
+        });
+    }
 
     ui.add_space(S6);
     section(ui, "Sensitivity in each game");

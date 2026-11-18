@@ -24,6 +24,27 @@ pub struct AggregatedTaskMetrics {
     pub total_score: u64,
     pub max_streak: u32,
     pub points: Vec<MetricPoint>,
+    /// Tracking sessions: scored by time on target, not by shots. Missing from other
+    /// scenarios and from tracking sessions saved before clicks stopped counting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tracking: Option<TrackingStats>,
+}
+
+/// How long the crosshair stayed on a tracking target.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Default)]
+pub struct TrackingStats {
+    /// Share of the run spent on the target, 0–100.
+    pub on_target_pct: f32,
+    pub time_on_target_secs: f32,
+    /// Longest unbroken stretch on the target.
+    pub longest_on_target_secs: f32,
+}
+
+impl TrackingStats {
+    /// Points for a tracking run: 100 per percent of the time on target.
+    pub fn score(&self) -> u64 {
+        (self.on_target_pct.max(0.0) * 100.0) as u64
+    }
 }
 
 impl AggregatedTaskMetrics {
@@ -84,6 +105,17 @@ impl AggregatedTaskMetrics {
             total_score,
             max_streak,
             points,
+            tracking: None,
+        }
+    }
+
+    /// A tracking session: no shots, accuracy is the share of time on target.
+    pub fn tracking(stats: TrackingStats) -> Self {
+        Self {
+            accuracy_pct: stats.on_target_pct,
+            total_score: stats.score(),
+            tracking: Some(stats),
+            ..Self::default()
         }
     }
 }

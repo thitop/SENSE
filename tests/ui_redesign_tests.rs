@@ -349,6 +349,7 @@ impl Fixture {
             music_volume: 0.5,
             fps: 240,
             offscreen_targets: &[],
+            tracking: None,
         }
     }
 }
