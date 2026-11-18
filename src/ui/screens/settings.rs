@@ -195,6 +195,11 @@ pub fn show(ui: &mut egui::Ui, state: &mut UiState, model: &UiModel, actions: &m
         if widgets::ghost_button(ui, Some(icon::ARROW_COUNTER_CLOCKWISE), "Run setup again").clicked() {
             actions.push(UiAction::RerunSetup);
         }
+        ui.add_space(S2);
+        caption(ui, "Grip, what moves when you aim, mousepad, and what feels off.");
+        if widgets::ghost_button(ui, None, "Your setup").clicked() {
+            actions.push(UiAction::OpenSetupQuestions);
+        }
     });
 }
 

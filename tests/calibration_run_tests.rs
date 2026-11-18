@@ -532,3 +532,47 @@ fn old_pair_records_load_without_a_band() {
     let r: aim_trainer::data::RoundSignals = serde_json::from_str(json).unwrap();
     assert_eq!(r.pairs[0].band, None);
 }
+
+// ---------- Search plan and answers ----------
+
+use aim_trainer::sensitivity::search_plan::SearchPlan;
+
+#[test]
+fn run_uses_plan_range_and_stores_start() {
+    let plan = SearchPlan { min_cm: 15.0, max_cm: 30.0, start_cm: Some(27.0) };
+    let setup = aim_trainer::data::setup::PlayerSetup::not_sure(33.0, chrono::Utc::now());
+    let mut run = CalibrationRun::with_plan(1, plan, Some(setup.clone()), Some(33.0));
+    assert_eq!(run.plan(), plan);
+    skip_warmup(&mut run);
+    assert_eq!(run.test_cm(40.0), 22.5, "block 1 is the midpoint; the start hint is ignored");
+    assert_eq!(run.plan().start_cm, Some(27.0));
+    let at = chrono::Utc::now();
+    assert_eq!(run.run_record(800.0, at).search, (15.0, 30.0));
+    let built = run.build_result(vec![], None, at);
+    assert_eq!(built.plan, Some(plan));
+    assert_eq!(built.setup, Some(setup));
+    assert_eq!(built.own_cm_at_start, Some(33.0));
+}
+
+#[test]
+fn old_run_record_json_defaults_search() {
+    let old = r#"{"at":"2026-11-16T12:58:26Z","dpi":800.0,"rows":[]}"#;
+    let r: aim_trainer::sensitivity::pooling::RunRecord = serde_json::from_str(old).unwrap();
+    assert_eq!(r.search, (15.0, 80.0));
+}
+
+#[test]
+fn pad_limited_flags_only_capped_results() {
+    let old = r#"{"cm_360":30.0,"confidence":0.5,"psa_cm":30.0,"stat_cm":null,
+        "rounds":[],"samples":[],"at":"2026-11-16T12:58:26Z"}"#;
+    let mut r: aim_trainer::data::CalibrationResult = serde_json::from_str(old).unwrap();
+    assert!(!r.pad_limited(), "no plan");
+    r.plan = Some(SearchPlan { min_cm: 15.0, max_cm: 30.0, start_cm: None });
+    r.cm_360 = 29.5;
+    assert!(r.pad_limited());
+    r.cm_360 = 31.0;
+    assert!(!r.pad_limited(), "above the cap is not a cap hit (an older, wider pad)");
+    r.plan = Some(SearchPlan { min_cm: 15.0, max_cm: 80.0, start_cm: None });
+    r.cm_360 = 79.0;
+    assert!(!r.pad_limited());
+}

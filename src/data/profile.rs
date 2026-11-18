@@ -4,6 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use super::calibration::CalibrationResult;
+use super::setup::{PlayerSetup, QuestionsNeeded};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlayerProfile {
@@ -22,6 +23,12 @@ pub struct PlayerProfile {
     /// Recent calibration runs, pooled into `last_calibration` (see `sensitivity::pooling`).
     #[serde(default)]
     pub recent_runs: Vec<crate::sensitivity::pooling::RunRecord>,
+    /// The player's answers about their aim and gear; None until asked.
+    #[serde(default)]
+    pub setup: Option<PlayerSetup>,
+    /// Whether the player knows their own sensitivity; None on older profiles (inferred).
+    #[serde(default)]
+    pub sens_known: Option<bool>,
     /// Profiles saved before crosshair settings existed get the crosshair SENSE always had.
     #[serde(default)]
     pub crosshair: super::crosshair::CrosshairStyle,
@@ -67,7 +74,23 @@ impl PlayerProfile {
             onboarded: false,
             last_calibration: None,
             recent_runs: Vec::new(),
+            setup: None,
+            sens_known: None,
             crosshair: Default::default(),
+        }
+    }
+
+    /// The stored answer, else a guess: a changed sensitivity or a finished calibration means known.
+    pub fn sens_known(&self) -> bool {
+        self.sens_known
+            .unwrap_or(self.current_cm_360 != 40.0 || self.last_calibration.is_some())
+    }
+
+    pub fn questions_needed(&self) -> Option<QuestionsNeeded> {
+        match &self.setup {
+            None => Some(QuestionsNeeded::All),
+            Some(s) if !s.problems.is_empty() && !s.q1_current(self.current_cm_360) => Some(QuestionsNeeded::Q1Only),
+            Some(_) => None,
         }
     }
 }

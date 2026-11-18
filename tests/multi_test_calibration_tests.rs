@@ -235,6 +235,22 @@ fn rel_err(r: f64, pref: f64) -> f64 {
     (r - pref).abs() / pref * 100.0
 }
 
+fn flick_block(s: &mut BlockScheduler, signal: Signal) {
+    for _ in 0..9 {
+        s.record(TestKind::Flick, signal);
+    }
+    s.end_block();
+}
+
+#[test]
+fn start_hint_is_ignored() {
+    let hinted = BlockScheduler::with_start(15.0, 80.0, Some(28.0), 7);
+    assert_eq!(hinted.current_cm_360, 47.5);
+    let mut s = BlockScheduler::with_start(15.0, 80.0, Some(28.0), 7);
+    flick_block(&mut s, Signal::TooFast);
+    assert!((s.current_cm_360 - 63.75).abs() < 1e-9);
+}
+
 #[test]
 fn blocks_land_near_the_preferred_sensitivity() {
     let mut rng = StdRng::seed_from_u64(7);

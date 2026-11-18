@@ -9,6 +9,7 @@ pub mod pooling;
 pub mod games;
 pub mod path_recorder;
 pub mod psa;
+pub mod search_plan;
 pub mod tracking_signal;
 
 pub use analyzer::StatisticalAnalyzer;
@@ -120,6 +121,9 @@ impl SensitivityEngine {
                 .collect(),
             at,
             diagnostics: None,
+            plan: None,
+            setup: None,
+            own_cm_at_start: None,
             pooled_runs: 1,
             no_answer: false,
             runs_disagree: false,

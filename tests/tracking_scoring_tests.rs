@@ -194,3 +194,26 @@ mod ticker {
         assert!(Sfx::TrackTick.max_secs() < TrackingTicker::INTERVAL_SECS);
     }
 }
+
+/// Calibration plays the tracking test as its own task: clicks there must not be shots
+/// (no hit/miss sound, nothing recorded), while flick and micro segments still take them.
+#[test]
+fn calibration_tracking_segments_ignore_clicks() {
+    use aim_trainer::game::calibration_run::{CalibrationRun, SegmentEnd};
+    use aim_trainer::sensitivity::combiner::TestKind;
+
+    let mut run = CalibrationRun::new(7);
+    let mut tracking_segments = 0;
+    for _ in 0..200 {
+        let Some(seg) = run.segment() else { break };
+        let task = run.make_task();
+        assert_eq!(task.takes_shots(), seg.kind != TestKind::Tracking, "{:?}", seg);
+        if seg.kind == TestKind::Tracking {
+            tracking_segments += 1;
+        }
+        if run.finish_segment() == SegmentEnd::Completed {
+            break;
+        }
+    }
+    assert!(tracking_segments >= 2, "warm-up and counted tracking were both checked");
+}

@@ -28,7 +28,10 @@ use game::{
     hit_detection::Ray,
     tasks::{TaskManager, TaskState, TaskType},
 };
+use data::setup::QuestionsNeeded;
 use sensitivity::combiner::TestKind;
+use sensitivity::search_plan::SearchPlan;
+use ui::screens::questions::QuestionsDraft;
 use sensitivity::path_recorder::ShotMovementPath;
 use sensitivity::{pooling, SensitivityConverter, SensitivityEngine};
 use std::sync::Arc;
@@ -362,6 +365,30 @@ impl GameState {
         self.ui_state.dpi_error = None;
         self.ui_state.open_session = None;
         self.ui_state.onboarding = None; // re-created next frame if the new profile needs setup
+        self.ui_state.questions = None;
+    }
+
+    /// Ask the setup questions first when the profile needs them; otherwise begin the run.
+    fn start_calibration(&mut self) {
+        let Some(p) = self.data_manager.profile_manager.get_active_profile().cloned() else { return };
+        if let Some(needed) = p.questions_needed() {
+            let q1_only = needed == QuestionsNeeded::Q1Only;
+            self.ui_state.questions = Some(QuestionsDraft::from_setup(p.setup.as_ref(), q1_only, false));
+            return;
+        }
+        self.sensitivity_engine.reset_calibration();
+        self.calibration_totals = RunTotals::default();
+        self.aim.reset();
+        let seed = chrono::Utc::now().timestamp_millis() as u64;
+        let own_cm = p.sens_known().then_some(p.current_cm_360);
+        let run = CalibrationRun::with_plan(seed, SearchPlan::for_profile(&p), p.setup.clone(), own_cm);
+        self.set_cm_360(run.test_cm(self.profile_cm_360()));
+        self.calibration_run = Some(run);
+        self.session = PlaySession { mode: PlayMode::Calibration, paused: false };
+        self.current_session_points.clear();
+        self.shot_counter = 0;
+        self.begin_segment(3.0);
+        self.close_menu();
     }
 
     fn record_session(
@@ -480,20 +507,7 @@ impl GameState {
     fn apply_action(&mut self, action: UiAction) {
         match action {
             UiAction::Navigate(screen) => self.open_menu(screen),
-            UiAction::StartCalibration => {
-                self.sensitivity_engine.reset_calibration();
-                self.calibration_totals = RunTotals::default();
-                self.aim.reset();
-                let seed = chrono::Utc::now().timestamp_millis() as u64;
-                let run = CalibrationRun::new(seed);
-                self.set_cm_360(run.test_cm(self.profile_cm_360()));
-                self.calibration_run = Some(run);
-                self.session = PlaySession { mode: PlayMode::Calibration, paused: false };
-                self.current_session_points.clear();
-                self.shot_counter = 0;
-                self.begin_segment(3.0);
-                self.close_menu();
-            }
+            UiAction::StartCalibration => self.start_calibration(),
             UiAction::QuitCalibration => self.quit_calibration(),
             UiAction::StartPractice(task) => {
                 self.set_cm_360(self.profile_cm_360());
@@ -515,14 +529,18 @@ impl GameState {
                 }
             }),
             UiAction::ApplySensitivity(cm) => {
-                self.update_profile(|p| p.current_cm_360 = cm);
+                self.update_profile(|p| {
+                    p.current_cm_360 = cm;
+                    p.sens_known = Some(true);
+                });
                 self.set_cm_360(cm);
             }
-            UiAction::CompleteOnboarding { dpi, game_id, cm_360 } => {
+            UiAction::CompleteOnboarding { dpi, game_id, cm_360, sens_known } => {
                 self.update_profile(|p| {
                     p.dpi = dpi;
                     p.primary_game_id = game_id;
                     p.current_cm_360 = cm_360;
+                    p.sens_known = Some(sens_known);
                     p.onboarded = true;
                 });
                 self.set_dpi(dpi);
@@ -536,6 +554,19 @@ impl GameState {
                     self.ui_state.onboarding = Some(OnboardingDraft::from_profile(p));
                 }
             }
+            UiAction::SaveSetup { setup, start_after } => {
+                self.update_profile(|p| p.setup = Some(setup));
+                self.ui_state.questions = None;
+                if start_after {
+                    self.start_calibration();
+                }
+            }
+            UiAction::OpenSetupQuestions => {
+                if let Some(p) = self.data_manager.profile_manager.get_active_profile() {
+                    self.ui_state.questions = Some(QuestionsDraft::from_setup(p.setup.as_ref(), false, true));
+                }
+            }
+            UiAction::CancelQuestions => self.ui_state.questions = None,
             UiAction::SaveDpi(dpi) => {
                 self.end_paused_practice();
                 self.update_profile(|p| p.dpi = dpi);
@@ -893,13 +924,21 @@ impl GameState {
             return;
         }
         if self.ui_state.menu_open {
+            // Esc closes the questions: no run starts and nothing is saved.
+            if self.ui_state.questions.is_some() {
+                self.apply_action(UiAction::CancelQuestions);
+                return;
+            }
             // Esc cancels "Run setup again" (first-run setup can't be skipped).
             if self.ui_state.onboarding.as_ref().is_some_and(|d| d.cancellable) {
                 self.ui_state.onboarding = None;
                 return;
             }
             // Back to a run in progress only; with nothing to play the menu stays open.
-            if esc_closes_menu(self.task_manager.state, self.ui_state.onboarding.is_some()) {
+            if esc_closes_menu(
+                self.task_manager.state,
+                self.ui_state.onboarding.is_some() || self.ui_state.questions.is_some(),
+            ) {
                 self.close_menu();
             }
         } else if self.task_manager.state == TaskState::Finished {

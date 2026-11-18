@@ -13,7 +13,9 @@ use super::tasks::tracking::TrackingTask;
 use super::tasks::Task;
 use crate::data::{CalibrationResult, CalibrationRound, EstimateRecord, PairRecord, RoundSignals, RunDiagnostics};
 use crate::sensitivity::paired::{PairResult, Side};
-use crate::sensitivity::pooling::{is_answer, RunRecord, SEARCH_CM};
+use crate::data::setup::PlayerSetup;
+use crate::sensitivity::pooling::{is_answer, RunRecord};
+use crate::sensitivity::search_plan::SearchPlan;
 use crate::sensitivity::blocks::{block_plan_for, warmup_plan_for, Amount, BlockScheduler, Segment};
 use crate::sensitivity::combiner::{Signal, TestKind};
 use crate::sensitivity::psa::PsaRoundConclusion;
@@ -48,6 +50,9 @@ pub struct CalibrationRun {
     pending_pairs: Vec<(TestKind, PairResult)>,
     /// Counted pairs with the 0-based block they were played in.
     pairs: Vec<(usize, TestKind, PairResult)>,
+    search_plan: SearchPlan,
+    setup: Option<PlayerSetup>,
+    own_cm: Option<f64>,
 }
 
 impl CalibrationRun {
@@ -56,8 +61,13 @@ impl CalibrationRun {
     pub const BLOCKS: usize = 7;
 
     pub fn new(seed: u64) -> Self {
+        Self::with_plan(seed, SearchPlan::default(), None, None)
+    }
+
+    /// A run that searches `plan`'s range, keeping the player's answers for the result.
+    pub fn with_plan(seed: u64, plan: SearchPlan, setup: Option<PlayerSetup>, own_cm: Option<f64>) -> Self {
         Self {
-            scheduler: BlockScheduler::new(SEARCH_CM.0, SEARCH_CM.1, Self::BLOCKS),
+            scheduler: BlockScheduler::with_start(plan.min_cm, plan.max_cm, plan.start_cm, Self::BLOCKS),
             plan: warmup_plan_for(&Self::AVAILABLE),
             index: 0,
             warmup: true,
@@ -66,7 +76,14 @@ impl CalibrationRun {
             pending: Vec::new(),
             pending_pairs: Vec::new(),
             pairs: Vec::new(),
+            search_plan: plan,
+            setup,
+            own_cm,
         }
+    }
+
+    pub fn plan(&self) -> SearchPlan {
+        self.search_plan
     }
 
     /// Blocks this run plays.
@@ -255,6 +272,9 @@ impl CalibrationRun {
             no_answer: s.recommendation(None).map_or(true, |r| !is_answer(r.neutral.rel_uncertainty)),
             runs_disagree: false,
             habits: None,
+            plan: Some(self.search_plan),
+            setup: self.setup.clone(),
+            own_cm_at_start: self.own_cm,
         }
     }
 
@@ -271,7 +291,7 @@ impl CalibrationRun {
                 })
             })
             .collect();
-        RunRecord { at, dpi, rows }
+        RunRecord { at, dpi, rows, search: (self.search_plan.min_cm, self.search_plan.max_cm) }
     }
 
     /// What each test said per block and where each one alone would land.

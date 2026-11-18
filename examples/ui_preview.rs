@@ -24,6 +24,9 @@ use aim_trainer::game::tasks::flick::FlickBand;
 use aim_trainer::habits::analysis::{Dir, Habit, HabitFinding};
 use aim_trainer::habits::record::{AimKind, AimLog, PlayContext, TargetRecord, TrackingRecord};
 use aim_trainer::habits::{HabitReport, LeftOutNote};
+use aim_trainer::data::setup::{AimProblem, Grip, PadSize, PlayerSetup, Pivot};
+use aim_trainer::habits::answers::{AnswerCheck, AnswerVerdict};
+use aim_trainer::ui::screens::questions::QuestionsDraft;
 use chrono::{Duration, Utc};
 
 const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb; // matches the game's sRGB surface
@@ -192,6 +195,9 @@ fn profile(calibrated: bool) -> PlayerProfile {
             no_answer: false,
             runs_disagree: false,
             habits: None,
+            plan: None,
+            setup: None,
+            own_cm_at_start: None,
         });
     }
     p
@@ -389,6 +395,44 @@ fn scenes() -> Vec<Scene> {
         },
     );
     v.push(hab_warm);
+
+    let mut answers = base("sensitivity-answers", (1280, 1500), Screen::Sensitivity, true);
+    with_habits(
+        &mut answers,
+        HabitReport {
+            findings: findings(),
+            answer_checks: vec![
+                AnswerCheck { problem: AimProblem::Overshoot, verdict: AnswerVerdict::Agrees },
+                AnswerCheck { problem: AimProblem::ShakySmall, verdict: AnswerVerdict::Agrees },
+            ],
+            ..Default::default()
+        },
+    );
+    if let Some(c) = answers.profile.last_calibration.as_mut() {
+        c.setup = Some(PlayerSetup {
+            problems: vec![AimProblem::Overshoot, AimProblem::ShakySmall],
+            grip: None,
+            pivot: None,
+            pad: None,
+            answered_at_cm: 40.0,
+            answered_at: Utc::now(),
+        });
+        c.own_cm_at_start = Some(40.0);
+    }
+    v.push(answers);
+
+    for step in 1..=4u8 {
+        let name = ["questions-1", "questions-2", "questions-3", "questions-4"][step as usize - 1];
+        let mut q = base(name, L, Screen::Home, true);
+        let mut draft = QuestionsDraft::from_setup(None, false, false);
+        draft.step = step;
+        draft.problems = vec![AimProblem::Overshoot];
+        draft.grip = Some(Grip::Claw);
+        draft.pivot = Some(Pivot::Wrist);
+        draft.pad = Some(PadSize::Medium);
+        q.state.questions = Some(draft);
+        v.push(q);
+    }
 
     let mut hist = base("history-habits", (1280, 1000), Screen::History, true);
     hist.history = with_practice(std::mem::take(&mut hist.history));

@@ -419,6 +419,9 @@ fn pooling_sets_the_pooled_uncertainty() {
         no_answer: false,
         runs_disagree: false,
         habits: None,
+        plan: None,
+        setup: None,
+        own_cm_at_start: None,
     };
     r.apply_pool(&Pooled {
         cm_360: 38.0,
@@ -501,6 +504,9 @@ mod replay_view {
             no_answer: false,
             runs_disagree: false,
             habits: None,
+            plan: None,
+            setup: None,
+            own_cm_at_start: None,
         }
     }
 

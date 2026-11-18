@@ -4,7 +4,13 @@ use chrono::{DateTime, Utc};
 use egui::{vec2, Align, Layout, RichText};
 use egui_phosphor::regular as icon;
 
+use crate::data::setup::AimProblem;
 use crate::data::CalibrationResult;
+use crate::game::tasks::TaskType;
+use crate::habits::answers::{
+    badge, direction_checks, direction_sentence as answer_direction, matching, subject, AnswerCheck, AnswerVerdict,
+    HabitMatch,
+};
 use crate::habits::analysis::{Dir, HabitFinding};
 use crate::habits::trend::{progress, Change, Progress, SessionHabitRow};
 use crate::habits::{HabitReport, LeftOutNote};
@@ -19,6 +25,9 @@ const NO_ANSWER: &str =
 const WARMING_UP: &str =
     "Your aim was still improving during this run. Warm up longer before calibrating.";
 const ELSEWHERE: &str = "Practise at this sensitivity to track progress.";
+/// Shown under the result value when the search range's top cut the answer off.
+pub const PAD_LIMIT: &str =
+    "Your mousepad is the limit here. A bigger pad could let you play slower.";
 const COLUMNS: usize = 3;
 const CARD_MIN_HEIGHT: f32 = 214.0;
 
@@ -70,6 +79,26 @@ pub fn card_lines(f: &HabitFinding, p: &Progress) -> CardLines {
     }
 }
 
+pub fn badge_text(v: AnswerVerdict) -> &'static str {
+    match v {
+        AnswerVerdict::Agrees => "You said this too",
+        AnswerVerdict::Opposite => "The test saw the opposite",
+        AnswerVerdict::NotSeen => "Not seen at this sensitivity",
+    }
+}
+
+pub fn not_seen_line(p: AimProblem) -> String {
+    format!("You said {}: not seen at this sensitivity.", subject(p))
+}
+
+/// The scenario that works on a problem's habits.
+fn practice_for(p: AimProblem) -> Option<TaskType> {
+    matching(p).first().map(|m| match *m {
+        HabitMatch::FlickPastAny | HabitMatch::FlickShortAny => TaskType::Flick,
+        HabitMatch::Exact(h) => h.practice(),
+    })
+}
+
 pub fn left_out_sentence(n: &LeftOutNote) -> String {
     format!(
         "{} was left out of the result: {} at every speed tested. That's a habit to practise, not a sensitivity problem.",
@@ -86,7 +115,18 @@ pub fn practise_section(
     report: &HabitReport,
     actions: &mut Vec<UiAction>,
 ) {
-    cards(ui, model, report, cal.at, cal.cm_360, actions);
+    // Direction sentences need the result, so only this page has them.
+    let problems: Vec<AimProblem> =
+        cal.setup.as_ref().map(|s| s.problems.clone()).unwrap_or_default();
+    let directions: Vec<String> = if cal.no_answer {
+        Vec::new()
+    } else {
+        direction_checks(&problems, cal.own_cm_at_start, cal.cm_360)
+            .into_iter()
+            .map(|(p, v)| answer_direction(p, v))
+            .collect()
+    };
+    draw(ui, model, report, cal.at, cal.cm_360, directions, actions);
 }
 
 /// The section for a report, with progress counted from `since` at sessions near `result_cm`.
@@ -98,6 +138,18 @@ pub fn cards(
     result_cm: f64,
     actions: &mut Vec<UiAction>,
 ) {
+    draw(ui, model, report, since, result_cm, Vec::new(), actions);
+}
+
+fn draw(
+    ui: &mut egui::Ui,
+    model: &UiModel,
+    report: &HabitReport,
+    since: DateTime<Utc>,
+    result_cm: f64,
+    directions: Vec<String>,
+    actions: &mut Vec<UiAction>,
+) {
     section(ui, "What to practise");
     if report.no_answer {
         muted(ui, NO_ANSWER);
@@ -107,7 +159,7 @@ pub fn cards(
         ui.columns(COLUMNS, |cols| {
             for (col, f) in cols.iter_mut().zip(&report.findings) {
                 let p = progress(model.history, f.habit, since, result_cm);
-                col.with_layout(Layout::top_down(Align::Min), |col| card(col, f, &p, actions));
+                col.with_layout(Layout::top_down(Align::Min), |col| card(col, f, &p, &report.answer_checks, actions));
             }
         });
     }
@@ -117,10 +169,26 @@ pub fn cards(
         notes.push(WARMING_UP.to_string());
     }
     notes.extend(report.left_out.iter().map(left_out_sentence));
-    if !notes.is_empty() {
+    notes.extend(directions);
+    let not_seen: Vec<AimProblem> = report
+        .answer_checks
+        .iter()
+        .filter(|c| c.verdict == AnswerVerdict::NotSeen)
+        .map(|c| c.problem)
+        .collect();
+    if !notes.is_empty() || !not_seen.is_empty() {
         ui.add_space(S3);
         for n in notes {
             ui.label(RichText::new(n).font(body(12.0)).color(TEXT_SECONDARY));
+        }
+        for p in not_seen {
+            ui.label(RichText::new(not_seen_line(p)).font(body(12.0)).color(TEXT_SECONDARY));
+            if let Some(task) = practice_for(p) {
+                if widgets::secondary_button(ui, None, &widgets::arrows("Practise anyway \u{2192}")).clicked() {
+                    actions.push(UiAction::StartPractice(task));
+                }
+            }
+            ui.add_space(S1);
         }
     }
 }
@@ -129,13 +197,22 @@ fn muted(ui: &mut egui::Ui, text: &str) {
     ui.label(RichText::new(text).font(body(13.0)).color(TEXT_SECONDARY));
 }
 
-fn card(ui: &mut egui::Ui, f: &HabitFinding, p: &Progress, actions: &mut Vec<UiAction>) {
+fn card(
+    ui: &mut egui::Ui,
+    f: &HabitFinding,
+    p: &Progress,
+    checks: &[AnswerCheck],
+    actions: &mut Vec<UiAction>,
+) {
     let l = card_lines(f, p);
     widgets::card(ui, |ui| {
         ui.set_min_width(ui.available_width());
         ui.set_min_height(CARD_MIN_HEIGHT);
         ui.spacing_mut().item_spacing.y = S1;
         ui.label(RichText::new(&l.title).font(medium(14.0)).color(TEXT));
+        if let Some(v) = badge(f.habit, checks) {
+            verdict_pill(ui, v);
+        }
         ui.label(RichText::new(&l.value).font(display(22.0)).color(WARN));
         ui.label(RichText::new(widgets::arrows(&l.why)).font(body(12.0)).color(TEXT_SECONDARY));
         if let Some(line) = &l.progress {
@@ -152,6 +229,19 @@ fn card(ui: &mut egui::Ui, f: &HabitFinding, p: &Progress, actions: &mut Vec<UiA
             actions.push(UiAction::StartPractice(f.habit.practice()));
         }
     });
+}
+
+/// "You said this too" and its kin: a small pill under the card title.
+fn verdict_pill(ui: &mut egui::Ui, v: AnswerVerdict) {
+    let (fill, color) = match v {
+        AnswerVerdict::Agrees => (SUCCESS_BG, SUCCESS),
+        _ => (WARN_BG, WARN),
+    };
+    egui::Frame::NONE
+        .fill(fill)
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(S2 as i8, 2))
+        .show(ui, |ui| ui.label(RichText::new(badge_text(v)).font(body(11.0)).color(color)));
 }
 
 fn change_arrow(c: Option<Change>) -> (&'static str, egui::Color32) {

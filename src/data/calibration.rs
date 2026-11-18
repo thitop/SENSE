@@ -42,6 +42,15 @@ pub struct CalibrationResult {
     /// Aim habits found in this run's play; absent in older results.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub habits: Option<crate::habits::HabitReport>,
+    /// The range this run searched; absent in older results.
+    #[serde(default)]
+    pub plan: Option<crate::sensitivity::search_plan::SearchPlan>,
+    /// The player's setup answers when the run started.
+    #[serde(default)]
+    pub setup: Option<super::setup::PlayerSetup>,
+    /// The player's own sensitivity when the run started.
+    #[serde(default)]
+    pub own_cm_at_start: Option<f64>,
 }
 
 fn one_run() -> usize {
@@ -49,6 +58,13 @@ fn one_run() -> usize {
 }
 
 impl CalibrationResult {
+    /// The search range's top cut the answer off: the result sits at the pad's limit.
+    pub fn pad_limited(&self) -> bool {
+        self.plan.is_some_and(|p| {
+            p.max_cm < crate::sensitivity::pooling::SEARCH_CM.1 && (p.max_cm * 0.97..=p.max_cm * 1.001).contains(&self.cm_360)
+        })
+    }
+
     /// Take the result, confidence and per-test estimates from `p`, which pools this run with
     /// recent ones. The rounds and shots stay this run's (the graphs show the latest run).
     pub fn apply_pool(&mut self, p: &crate::sensitivity::pooling::Pooled) {

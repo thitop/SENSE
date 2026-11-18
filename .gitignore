@@ -4,3 +4,6 @@
 .vscode/
 *.log
 /dist
+
+.superpowers/
+.venv-art/

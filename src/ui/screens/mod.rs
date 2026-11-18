@@ -2,6 +2,7 @@ pub mod history;
 pub mod home;
 pub mod onboarding;
 pub mod practice;
+pub mod questions;
 pub mod sensitivity;
 pub mod settings;
 

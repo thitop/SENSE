@@ -73,6 +73,9 @@ fn result(cm: f64, no_answer: bool, diagnostics: Option<RunDiagnostics>) -> Cali
         no_answer,
         runs_disagree: false,
         habits: None,
+        plan: None,
+        setup: None,
+        own_cm_at_start: None,
     }
 }
 

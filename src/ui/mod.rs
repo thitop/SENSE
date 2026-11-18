@@ -6,6 +6,7 @@ pub mod graphs;
 pub mod habits;
 pub mod hud;
 pub mod logos;
+pub mod question_art;
 pub mod replay;
 pub mod replay_view;
 pub mod screens;
@@ -15,7 +16,9 @@ pub mod widgets;
 use egui::{vec2, Align, Align2, CornerRadius, CursorIcon, Frame, Layout, Margin, RichText, Sense};
 use egui_phosphor::regular as icon;
 
+use crate::data::setup::PlayerSetup;
 use crate::data::{CrosshairStyle, DisplayMode, PlayerProfile, SessionHistory};
+use screens::questions::QuestionsDraft;
 use crate::game::calibration::{CalibrationProgress, PlaySession};
 use crate::game::tasks::{TaskMetrics, TaskState, TaskType};
 use crate::sensitivity::games::GameProfile;
@@ -41,8 +44,14 @@ pub enum UiAction {
     ApplySensitivity(f64),
     /// Stop pooling: the latest calibration run stands alone from now on.
     UseLatestRunOnly,
-    CompleteOnboarding { dpi: f64, game_id: String, cm_360: f64 },
+    CompleteOnboarding { dpi: f64, game_id: String, cm_360: f64, sens_known: bool },
     RerunSetup,
+    /// Save the player's answers; `start_after` begins the calibration right away.
+    SaveSetup { setup: PlayerSetup, start_after: bool },
+    /// Settings → Your setup: reopen the questions with the saved answers.
+    OpenSetupQuestions,
+    /// Close the questions without saving.
+    CancelQuestions,
     SaveDpi(f64),
     SetMainGame(String),
     SetAudio { enabled: bool, volume: f32, music_volume: f32 },
@@ -107,6 +116,8 @@ pub struct UiState {
     pub screen: Screen,
     pub menu_open: bool,
     pub onboarding: Option<OnboardingDraft>,
+    /// The "Before you start" questions, while open.
+    pub questions: Option<QuestionsDraft>,
     /// (message, egui time it appeared)
     pub toast: Option<(String, f64)>,
     // Settings
@@ -134,6 +145,7 @@ impl UiState {
             screen: Screen::Home,
             menu_open: true,
             onboarding: None,
+            questions: None,
             toast: None,
             dpi_input: None,
             dpi_error: None,
@@ -182,6 +194,13 @@ pub fn render_ui(ctx: &egui::Context, state: &mut UiState, model: &UiModel) -> V
         egui::CentralPanel::default()
             .frame(Frame::NONE.fill(BG).inner_margin(Margin::same(S8 as i8)))
             .show(ctx, |ui| screens::onboarding::show(ui, state, model, &mut actions));
+        return actions;
+    }
+
+    if state.questions.is_some() {
+        egui::CentralPanel::default()
+            .frame(Frame::NONE.fill(BG).inner_margin(Margin::same(S8 as i8)))
+            .show(ctx, |ui| screens::questions::show(ui, state, model, &mut actions));
         return actions;
     }
 
