@@ -124,7 +124,7 @@ pub fn direction_checks(
         .collect()
 }
 
-fn subject(p: AimProblem) -> &'static str {
+pub fn subject(p: AimProblem) -> &'static str {
     match p {
         AimProblem::Overshoot => "you overshoot",
         AimProblem::CantTurnFast => "you can't turn fast enough",

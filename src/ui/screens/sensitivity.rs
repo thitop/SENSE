@@ -148,6 +148,10 @@ fn result(
                         .font(body(12.0))
                         .color(TEXT_MUTED),
                 );
+                if cal.pad_limited() {
+                    ui.add_space(S2);
+                    ui.label(RichText::new(crate::ui::habits::PAD_LIMIT).font(body(12.0)).color(WARN));
+                }
                 if let Some(note) = result_note(false, cal.runs_disagree) {
                 ui.add_space(S2);
                 ui.label(RichText::new(note).font(body(12.0)).color(WARN));

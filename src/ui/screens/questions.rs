@@ -178,11 +178,11 @@ fn buttons(
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let last = draft.step >= draft.last_step();
             let label = match (last, draft.from_settings) {
-                (false, _) => "Continue →",
+                (false, _) => "Continue",
                 (true, true) => "Save",
-                (true, false) => "Start calibration →",
+                (true, false) => "Start calibration",
             };
-            if widgets::primary_button(ui, None, label).clicked() {
+            if widgets::primary_button(ui, (label != "Save").then_some(icon::ARROW_RIGHT), label).clicked() {
                 if last {
                     actions.push(UiAction::SaveSetup {
                         setup: draft.to_setup(own_cm, now),
