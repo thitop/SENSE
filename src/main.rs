@@ -473,6 +473,9 @@ impl GameState {
                     self.ui_state.onboarding = Some(OnboardingDraft::from_profile(p));
                 }
             }
+            // wired in Task 7
+            UiAction::SaveSetup { .. } | UiAction::OpenSetupQuestions => {}
+            UiAction::CancelQuestions => self.ui_state.questions = None, // wired in Task 7
             UiAction::SaveDpi(dpi) => {
                 self.end_paused_practice();
                 self.update_profile(|p| p.dpi = dpi);
