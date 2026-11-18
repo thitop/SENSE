@@ -47,6 +47,9 @@ fn calibration_result_round_trips() {
         no_answer: false,
         runs_disagree: false,
         habits: None,
+        plan: None,
+        setup: None,
+        own_cm_at_start: None,
     });
 
     let json = serde_json::to_string(&p).unwrap();
@@ -435,6 +438,9 @@ fn sample_calibration() -> CalibrationResult {
         no_answer: false,
         runs_disagree: false,
         habits: None,
+        plan: None,
+        setup: None,
+        own_cm_at_start: None,
     }
 }
 
@@ -902,6 +908,9 @@ fn score_graph_marks_the_result() {
         no_answer: false,
         runs_disagree: false,
         habits: None,
+        plan: None,
+        setup: None,
+        own_cm_at_start: None,
     };
     assert_eq!(curve_marker(&cal), Some(39.6));
     cal.no_answer = true;

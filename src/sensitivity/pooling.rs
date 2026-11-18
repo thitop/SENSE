@@ -24,6 +24,13 @@ pub struct RunRecord {
     pub at: DateTime<Utc>,
     pub dpi: f64,
     pub rows: Vec<(TestKind, f64, usize, usize)>,
+    /// The range this run searched, cm/360; runs saved before it existed searched `SEARCH_CM`.
+    #[serde(default = "default_search")]
+    pub search: (f64, f64),
+}
+
+fn default_search() -> (f64, f64) {
+    SEARCH_CM
 }
 
 /// The newest runs at `dpi` from the last `POOL_DAYS` before `now` that found an answer on
@@ -107,12 +114,14 @@ pub fn pool(runs: &[&RunRecord]) -> Option<Pooled> {
     let set = fit_joint(&rows)?;
     let tested: Vec<f64> = rows.iter().map(|r| r.1).collect();
     let rec = trusted_recommendation(&set, &tested, None)?;
-    let cm_360 = rec.neutral.cm_360.clamp(SEARCH_CM.0, SEARCH_CM.1);
+    let range = runs.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), r| (lo.min(r.search.0), hi.max(r.search.1)));
+    let range = if runs.is_empty() { SEARCH_CM } else { range };
+    let cm_360 = rec.neutral.cm_360.clamp(range.0, range.1);
     let left_out = excluded_tests_in(&set, &tested);
     Some(Pooled {
         cm_360,
         rel_uncertainty: rec.neutral.rel_uncertainty,
-        confidence: confidence_of(Some(&rec), cm_360, SEARCH_CM, !left_out.is_empty()),
+        confidence: confidence_of(Some(&rec), cm_360, range, !left_out.is_empty()),
         estimates: set.estimates(),
         conflicts: rec.conflicts,
         left_out,

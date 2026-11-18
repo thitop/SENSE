@@ -4,7 +4,7 @@ use aim_trainer::data::CalibrationResult;
 use aim_trainer::sensitivity::combiner::{recommend, TestKind};
 use aim_trainer::sensitivity::joint_fit::fit_joint;
 use aim_trainer::sensitivity::pooling::{
-    is_answer, keep_recent, newest_agreeing, pool, runs_agree, runs_to_pool, RunRecord, MAX_ANSWER_UNCERTAINTY, MAX_POOLED,
+    is_answer, keep_recent, newest_agreeing, pool, runs_agree, runs_to_pool, RunRecord, MAX_ANSWER_UNCERTAINTY, MAX_POOLED, SEARCH_CM,
     POOL_DAYS,
 };
 use chrono::{Duration, TimeZone, Utc};
@@ -30,7 +30,7 @@ fn run_with(days_ago: i64, dpi: f64, at: f64, cms: &[f64], misses: usize) -> Run
             })
         })
         .collect();
-    RunRecord { at: now() - Duration::days(days_ago), dpi, rows }
+    RunRecord { at: now() - Duration::days(days_ago), dpi, rows, search: SEARCH_CM }
 }
 
 const CMS: [f64; 5] = [47.5, 40.0, 52.0, 50.0, 49.0];
@@ -138,7 +138,7 @@ fn vague_run(days_ago: i64) -> RunRecord {
         (Flick, 23.15, 3, 4), (Tracking, 23.15, 2, 0), (Micro, 23.15, 1, 2),
         (Flick, 37.05, 6, 3), (Tracking, 37.05, 1, 0), (Micro, 37.05, 1, 2),
     ];
-    RunRecord { at: now() - Duration::days(days_ago), dpi: 800.0, rows }
+    RunRecord { at: now() - Duration::days(days_ago), dpi: 800.0, rows, search: SEARCH_CM }
 }
 
 #[test]
@@ -175,4 +175,27 @@ fn the_newest_runs_that_agree_are_pooled() {
     assert_eq!(picked.len(), 2);
     assert!(picked.iter().all(|r| r.at != fast.at));
     assert!(newest_agreeing(&[]).is_empty());
+}
+
+const WIDE_CMS: [f64; 6] = [20.0, 28.0, 36.0, 44.0, 56.0, 75.0];
+
+#[test]
+fn pool_clamps_to_widest_range() {
+    let mut a = run(1, 800.0, 40.0, &WIDE_CMS);
+    let mut b = run(2, 800.0, 40.0, &WIDE_CMS);
+    a.search = (15.0, 30.0);
+    b.search = (15.0, 80.0);
+    let p = pool(&[&a, &b]).unwrap();
+    assert!(p.cm_360 > 30.0, "{}", p.cm_360);
+}
+
+#[test]
+fn pool_of_capped_runs_is_capped() {
+    let mut a = run(1, 800.0, 40.0, &WIDE_CMS);
+    let mut b = run(2, 800.0, 40.0, &WIDE_CMS);
+    a.search = (15.0, 30.0);
+    b.search = (15.0, 30.0);
+    let p = pool(&[&a, &b]).unwrap();
+    assert_eq!(p.cm_360, 30.0);
+    assert!(p.confidence <= 0.3, "{}", p.confidence);
 }

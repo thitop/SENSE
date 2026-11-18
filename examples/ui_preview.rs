@@ -74,6 +74,9 @@ fn profile(calibrated: bool) -> PlayerProfile {
             no_answer: false,
             runs_disagree: false,
             habits: None,
+            plan: None,
+            setup: None,
+            own_cm_at_start: None,
         });
     }
     p
