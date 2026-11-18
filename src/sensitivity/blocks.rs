@@ -151,6 +151,10 @@ pub struct BlockScheduler {
     pub fit_cm_360: Option<f64>,
     search_min_cm: f64,
     search_max_cm: f64,
+    /// The player's expected sensitivity. Kept for later use; simulations showed that starting
+    /// the search from it was not more accurate than bisecting from the midpoint, so it is ignored.
+    #[allow(dead_code)]
+    start_cm: Option<f64>,
     current: [SignalCounts; 6],
     current_bands: [SignalCounts; 3],
 }
@@ -165,6 +169,11 @@ impl BlockScheduler {
     const FIT_REACH: f64 = 0.20;
 
     pub fn new(low_cm: f64, high_cm: f64, max_blocks: usize) -> Self {
+        Self::with_start(low_cm, high_cm, None, max_blocks)
+    }
+
+    /// A search that may be given a start hint. The hint is stored but does not change the search.
+    pub fn with_start(low_cm: f64, high_cm: f64, start_cm: Option<f64>, max_blocks: usize) -> Self {
         Self {
             low_cm_360: low_cm,
             high_cm_360: high_cm,
@@ -177,6 +186,7 @@ impl BlockScheduler {
             fit_cm_360: None,
             search_min_cm: low_cm,
             search_max_cm: high_cm,
+            start_cm,
             current: [SignalCounts::default(); 6],
             current_bands: [SignalCounts::default(); 3],
         }
