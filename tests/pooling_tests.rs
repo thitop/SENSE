@@ -180,12 +180,25 @@ fn the_newest_runs_that_agree_are_pooled() {
 const WIDE_CMS: [f64; 6] = [20.0, 28.0, 36.0, 44.0, 56.0, 75.0];
 
 #[test]
-fn pool_clamps_to_widest_range() {
-    let mut a = run(1, 800.0, 40.0, &WIDE_CMS);
-    let mut b = run(2, 800.0, 40.0, &WIDE_CMS);
-    a.search = (15.0, 30.0);
-    b.search = (15.0, 80.0);
-    let p = pool(&[&a, &b]).unwrap();
+fn pool_clamps_to_newest_run_range() {
+    // `run(1, ..)` is newer than `run(2, ..)`: the newest run's pad is the player's current one.
+    let mut newest = run(1, 800.0, 40.0, &WIDE_CMS);
+    let mut older = run(2, 800.0, 40.0, &WIDE_CMS);
+    newest.search = (15.0, 30.0);
+    older.search = (15.0, 80.0);
+    let p = pool(&[&newest, &older]).unwrap();
+    assert_eq!(p.cm_360, 30.0);
+    // The order they are passed in doesn't matter.
+    assert_eq!(pool(&[&older, &newest]).unwrap().cm_360, 30.0);
+}
+
+#[test]
+fn pool_may_exceed_an_older_runs_cap() {
+    let mut newest = run(1, 800.0, 40.0, &WIDE_CMS);
+    let mut older = run(2, 800.0, 40.0, &WIDE_CMS);
+    newest.search = (15.0, 80.0);
+    older.search = (15.0, 30.0);
+    let p = pool(&[&newest, &older]).unwrap();
     assert!(p.cm_360 > 30.0, "{}", p.cm_360);
 }
 

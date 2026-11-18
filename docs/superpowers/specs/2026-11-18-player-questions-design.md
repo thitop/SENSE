@@ -116,7 +116,8 @@ a margin), so `cm/360 ≤ 2 × usable width`:
 
 *My call:* the numbers are constants in one place, tuned later. The minimum stays 15. The cap is the
 run's real range everywhere the range is used today: the scheduler, the "answer at the edge" confidence
-rule, and the clamp in pooling (pooled runs use the widest range among them). A result at the pad cap
+rule, and the clamp in pooling (pooled runs are clamped to the newest run's range, the player's current
+mousepad; changed 2026-11-18 from "the widest range among them", which let a pooled result exceed the pad). A result at the pad cap
 gets a note on the result page: *Your mousepad is the limit here. A bigger pad could let you play slower.*
 
 ### Start point
@@ -133,6 +134,10 @@ Today the first block tests the middle of 15–80 (47.5) and two bisection block
 "I overshoot" means "slower than what I play now", which is the same reading the card's subtitle gives.
 Grip and pivot then only set the start for players who skipped their sensitivity. The range is never
 narrowed by these answers (anti-goal).
+
+**Outcome (2026-11-18):** three ways of steering the start (x1.25 steps, block 1 only, x1.5 steps) all
+lost accuracy in simulation. The start point is stored on the run and shown in History, but the block
+search does not use it; the answers only cap the range (mousepad) and drive the result-page comparisons.
 
 First-run setup gains one profile flag, `sens_known`: the sensitivity was entered in setup, or a
 calibration result was applied with "Use this sensitivity". Today "Skip" silently keeps the 40 cm default.
@@ -187,7 +192,7 @@ explanations of their own.
 - Each run's `RunRecord` and `CalibrationResult` keep a copy of the answers they used, plus the range
   searched and the start point. Comparisons on a result, including in
   History, use that copy, never the current answers. A pooled result compares against the newest run's
-  copy and searches the widest range among the pooled runs.
+  copy and is clamped to the newest run's range (2026-11-18; was the widest range among the pooled runs).
 
 ## Art
 

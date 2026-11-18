@@ -58,13 +58,15 @@ fn one_run() -> usize {
 }
 
 impl CalibrationResult {
-    /// Take the result, confidence and per-test estimates from `p`, which pools this run with
-    /// recent ones. The rounds and shots stay this run's (the graphs show the latest run).
     /// The search range's top cut the answer off: the result sits at the pad's limit.
     pub fn pad_limited(&self) -> bool {
-        self.plan.is_some_and(|p| p.max_cm < 80.0 && self.cm_360 >= p.max_cm * 0.97)
+        self.plan.is_some_and(|p| {
+            p.max_cm < crate::sensitivity::pooling::SEARCH_CM.1 && (p.max_cm * 0.97..=p.max_cm * 1.001).contains(&self.cm_360)
+        })
     }
 
+    /// Take the result, confidence and per-test estimates from `p`, which pools this run with
+    /// recent ones. The rounds and shots stay this run's (the graphs show the latest run).
     pub fn apply_pool(&mut self, p: &crate::sensitivity::pooling::Pooled) {
         self.cm_360 = p.cm_360;
         self.psa_cm = Some(p.cm_360);

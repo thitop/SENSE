@@ -361,7 +361,7 @@ stage files a task doesn't name.
 **Interfaces:**
 - `python tools/vectorize_questions.py <in_dir> <out_dir>` reads `<id>.png` or `<id>.webp` for each id in the spec's art list (sources live in `assets/questions/originals/`) and writes `<out_dir>/<id>.svg`:
   - make background pixels transparent (within 12 of `#0B0C0E` per channel)
-  - vectorise with vtracer colour mode, `filter_speckle=8`, `color_precision=5`
+  - quantize the original to the palette (plus background) with Pillow, then vectorise with vtracer colour mode, `filter_speckle=4`, `color_precision=6` (falling back to 5, then 4, if the file exceeds 300 KB)
   - snap every fill to the nearest of the palette `PALETTE = ["#1B1D21", "#2C2F35", "#A3A6AD", "#ECECEE", "#FFD23F"]` (RGB distance; fills with R > 180, G > 140, B < 120 always snap to `#FFD23F`)
   - round coordinates to 1 decimal
   - fail if the output is > 300 KB

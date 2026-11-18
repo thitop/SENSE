@@ -1025,6 +1025,27 @@ fn onboarding_skip_marks_sens_unknown() {
 }
 
 #[test]
+fn onboarding_skip_keeps_a_known_sensitivity_on_rerun() {
+    let mut profile = PlayerProfile::new("p".into(), "P".into(), 800.0, "valorant".into());
+    profile.onboarded = true;
+    profile.sens_known = Some(true);
+    profile.current_cm_360 = 33.0;
+    let fx = Fixture::new(profile);
+    let model = fx.model();
+    let mut state = UiState::new();
+    let mut draft = OnboardingDraft::from_profile(&fx.profile);
+    assert!(draft.cancellable);
+    draft.step = 3;
+    draft.sens = "0.35".into();
+    state.onboarding = Some(draft);
+    let skip = click_labelled(&mut state, &model, "Skip");
+    assert!(
+        matches!(skip.as_slice(), [aim_trainer::ui::UiAction::CompleteOnboarding { sens_known: true, .. }]),
+        "{skip:?}"
+    );
+}
+
+#[test]
 fn settings_offers_your_setup() {
     let fx = Fixture::new(onboarded_profile());
     let model = fx.model();

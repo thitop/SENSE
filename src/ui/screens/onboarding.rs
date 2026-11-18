@@ -219,7 +219,9 @@ fn step_sens(ui: &mut egui::Ui, draft: &mut OnboardingDraft, model: &UiModel, ac
         sens_known,
     };
     if skip {
-        actions.push(complete(model.profile.current_cm_360, false));
+        // A re-run keeps what the player already told us; only a first-run Skip is "unknown".
+        let known = draft.cancellable && model.profile.sens_known();
+        actions.push(complete(model.profile.current_cm_360, known));
     } else if finish {
         draft.attempted = true;
         if let Ok(cm) = result {

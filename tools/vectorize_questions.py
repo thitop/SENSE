@@ -3,8 +3,10 @@
 Usage: python tools/vectorize_questions.py <in_dir> <out_dir>
 
 Reads <id>.png or <id>.webp for each id in ART_IDS (those that exist), makes the
-#0B0C0E background transparent, traces with vtracer, snaps every fill to PALETTE,
-rounds coordinates to 1 decimal and fails if an output exceeds 300 KB.
+#0B0C0E background transparent, quantizes the picture to PALETTE (plus the background)
+before tracing so small highlights survive, traces with vtracer, snaps every fill to
+PALETTE, rounds coordinates to 1 decimal, and fails (writing nothing) for any output
+that exceeds 300 KB.
 """
 import io
 import re
@@ -25,8 +27,8 @@ PALETTE = ["#1B1D21", "#2C2F35", "#A3A6AD", "#ECECEE", "#FFD23F"]
 BACKGROUND = (0x0B, 0x0C, 0x0E)
 BG_TOLERANCE = 12
 MAX_BYTES = 300 * 1024
-# (filter_speckle, color_precision) attempts: the spec values first, then coarser
-# settings only if the output would exceed MAX_BYTES.
+# (filter_speckle, color_precision) attempts: finest first, then coarser colour precision
+# only if the output would exceed MAX_BYTES.
 ATTEMPTS = [(4, 6), (4, 5), (4, 4)]
 
 
@@ -148,8 +150,10 @@ def main(argv):
             continue
         svg, (speckle, precision) = vectorise(src)
         size = len(svg.encode("utf-8"))
-        (out_dir / f"{art_id}.svg").write_text(svg, encoding="utf-8")
-        status = "OK" if size <= MAX_BYTES else "TOO LARGE"
+        too_large = size > MAX_BYTES
+        if not too_large:
+            (out_dir / f"{art_id}.svg").write_text(svg, encoding="utf-8")
+        status = "TOO LARGE (not written)" if too_large else "OK"
         print(f"{art_id}: {size} bytes {status} (speckle={speckle}, color_precision={precision})")
         failed |= size > MAX_BYTES
     return 1 if failed else 0

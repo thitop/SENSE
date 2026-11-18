@@ -218,3 +218,19 @@ fn pad_note_only_when_limited() {
     let free = sensitivity_texts(result(Some(plan), 30.0, vec![], HabitReport::default()));
     assert!(!free.iter().any(|t| t == PAD_LIMIT));
 }
+
+#[test]
+fn pad_limited_low_confidence_does_not_ask_for_a_rerun() {
+    let plan = SearchPlan { min_cm: 20.0, max_cm: 45.0, start_cm: None };
+    let mut cal = result(Some(plan), 45.0, vec![], HabitReport::default());
+    cal.confidence = 0.1;
+    let texts = sensitivity_texts(cal.clone());
+    assert!(texts.iter().any(|t| t == PAD_LIMIT), "{texts:?}");
+    assert!(!texts.iter().any(|t| t.contains("didn't agree")), "{texts:?}");
+    assert!(texts.iter().any(|t| t.contains("Use this sensitivity")), "{texts:?}");
+    assert!(!texts.iter().any(|t| t.contains("Use anyway")), "{texts:?}");
+    // Without the pad cap the same low result still asks for a re-run.
+    cal.plan = None;
+    let texts = sensitivity_texts(cal);
+    assert!(texts.iter().any(|t| t.contains("didn't agree")), "{texts:?}");
+}

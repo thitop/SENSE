@@ -51,6 +51,7 @@ pub fn runs_to_pool(runs: &[RunRecord], now: DateTime<Utc>, dpi: f64) -> Vec<&Ru
 /// Half-width (~95%, in ln cm/360) beyond which a result is no answer: the search range,
 /// 15–80 cm/360, is only ±0.84 around its middle, so a wider interval says nothing about where
 /// the answer lies. In real play a ±159% run pooled with three others left them all at 5%.
+/// Derived from the full range, so it is loose for a run capped by a small pad.
 pub const MAX_ANSWER_UNCERTAINTY: f64 = 0.84;
 
 /// Whether a result this uncertain (`rel_uncertainty`, ~95% half-width) is an answer at all.
@@ -114,8 +115,9 @@ pub fn pool(runs: &[&RunRecord]) -> Option<Pooled> {
     let set = fit_joint(&rows)?;
     let tested: Vec<f64> = rows.iter().map(|r| r.1).collect();
     let rec = trusted_recommendation(&set, &tested, None)?;
-    let range = runs.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), r| (lo.min(r.search.0), hi.max(r.search.1)));
-    let range = if runs.is_empty() { SEARCH_CM } else { range };
+    // The newest run's range: its pad is the player's current one (callers pass newest first,
+    // but the latest `at` is picked here so the order can't matter).
+    let range = runs.iter().max_by_key(|r| r.at).map_or(SEARCH_CM, |r| r.search);
     let cm_360 = rec.neutral.cm_360.clamp(range.0, range.1);
     let left_out = excluded_tests_in(&set, &tested);
     Some(Pooled {

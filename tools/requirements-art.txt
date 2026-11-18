@@ -1,2 +1,2 @@
-vtracer
-Pillow
+vtracer==0.6.15
+Pillow==13.0.0

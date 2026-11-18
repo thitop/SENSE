@@ -45,10 +45,12 @@ and the other way round. Habits you have at every sensitivity, like trailing a m
 this way. One fit over all tests picks the next sensitivity to try and, at the end, the result.
 
 Before the first run, four optional questions ask what goes wrong, how you hold the mouse, what moves
-when you flick, and how big your mousepad is. They decide where the search starts and which direction it
-tries first. **Skip all** answers every question with "Not sure" and starts the run. If you later apply a
-result that moves your sensitivity by more than 5%, only the first question is asked again. You can change
-your answers any time under **Settings > Your setup**.
+when you flick, and how big your mousepad is. The mousepad answer limits the slowest sensitivity
+tested; the other answers are compared with what the test measured on the result page. **Skip all**
+answers every question with "Not sure" and starts the run. If you later apply a result that moves your
+sensitivity by more than 5%, only the first question is asked again, and it keeps your other answers.
+You can change your answers any time under **Settings > Your setup**, where Skip all saves without
+starting a run.
 
 Press **Esc** to pause. The interrupted test starts again from the beginning when you resume.
 

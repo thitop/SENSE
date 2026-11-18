@@ -20,6 +20,7 @@ pub fn pad_max_cm(pad: Option<PadSize>) -> f64 {
 pub struct SearchPlan {
     pub min_cm: f64,
     pub max_cm: f64,
+    /// Recorded for History only; the block search ignores it (see `BlockScheduler::with_start`).
     pub start_cm: Option<f64>,
 }
 

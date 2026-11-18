@@ -165,7 +165,8 @@ fn result(
                     }
                 }
                 // When runs disagree, the note above already says what to do instead.
-                if level == ConfidenceLevel::Low && !cal.runs_disagree {
+                // At the pad's limit a re-run can't help: the pad note above says what does.
+                if level == ConfidenceLevel::Low && !cal.runs_disagree && !cal.pad_limited() {
                     ui.add_space(S2);
                     ui.label(
                         RichText::new("Your tests didn't agree on this one. Run it again before you use it.")
@@ -244,7 +245,8 @@ fn result(
         });
 
         ui.add_space(S6);
-        let low = ConfidenceLevel::from_score(cal.confidence) == ConfidenceLevel::Low;
+        // A pad-limited result is low only because the pad cut it off; running again won't change that.
+        let low = ConfidenceLevel::from_score(cal.confidence) == ConfidenceLevel::Low && !cal.pad_limited();
         // Low because runs disagree: another run straight away isn't the obvious next step.
         let rerun_first = low && !cal.runs_disagree;
         ui.horizontal(|ui| {

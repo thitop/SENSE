@@ -258,7 +258,7 @@ fn scenes() -> Vec<Scene> {
             findings: findings(),
             answer_checks: vec![
                 AnswerCheck { problem: AimProblem::Overshoot, verdict: AnswerVerdict::Agrees },
-                AnswerCheck { problem: AimProblem::ShakySmall, verdict: AnswerVerdict::NotSeen },
+                AnswerCheck { problem: AimProblem::ShakySmall, verdict: AnswerVerdict::Agrees },
             ],
             ..Default::default()
         },
