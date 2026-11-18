@@ -12,6 +12,11 @@ use crate::ui::{widgets, Screen, UiAction, UiModel, UiState};
 const TOAST_SECS: f64 = 2.75;
 
 /// "3", "2", "1", then "Go" once the countdown reaches zero.
+/// The live score in the practice bar while tracking: "Score 6200 · 62% on target".
+pub fn tracking_live_text(t: &crate::data::TrackingStats) -> String {
+    format!("Score {} · {:.0}% on target", t.score(), t.on_target_pct)
+}
+
 pub fn countdown_label(remaining_secs: f32) -> String {
     if remaining_secs <= 0.0 {
         "Go".into()
@@ -134,6 +139,10 @@ fn practice_pill(ctx: &egui::Context, model: &UiModel) {
                         .font(display(13.0))
                         .color(TEXT),
                 );
+                if let Some(t) = model.tracking {
+                    ui.label(dot());
+                    ui.label(RichText::new(tracking_live_text(&t)).font(display(13.0)).color(ACCENT));
+                }
                 ui.label(dot());
                 ui.label(RichText::new(format!("{} FPS", model.fps)).font(body(12.0)).color(TEXT_MUTED));
                 ui.label(dot());
@@ -266,9 +275,18 @@ fn finished_card(ctx: &egui::Context, model: &UiModel, actions: &mut Vec<UiActio
                     ui.label(RichText::new(label).font(body(12.0)).color(TEXT_MUTED));
                     ui.label(RichText::new(value).font(display(20.0)).color(TEXT));
                 };
-                stat(&mut c[0], "Score", m.score.to_string());
-                stat(&mut c[1], "Accuracy", format!("{:.0}%", m.accuracy));
-                stat(&mut c[2], "Avg reaction", format!("{:.0} ms", m.avg_reaction_time_ms));
+                match model.tracking {
+                    Some(t) => {
+                        stat(&mut c[0], "Score", t.score().to_string());
+                        stat(&mut c[1], "On target", format!("{:.0}%", t.on_target_pct));
+                        stat(&mut c[2], "Longest on target", format!("{:.1} s", t.longest_on_target_secs));
+                    }
+                    None => {
+                        stat(&mut c[0], "Score", m.score.to_string());
+                        stat(&mut c[1], "Accuracy", format!("{:.0}%", m.accuracy));
+                        stat(&mut c[2], "Avg reaction", format!("{:.0} ms", m.avg_reaction_time_ms));
+                    }
+                }
             });
         }
         ui.add_space(S4);

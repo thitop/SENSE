@@ -8,7 +8,7 @@ use std::path::Path;
 
 use aim_trainer::data::{
     AggregatedTaskMetrics, CalibrationResult, CalibrationRound, MetricPoint, PlayerProfile,
-    SessionHistory, SessionRecord,
+    SessionHistory, SessionRecord, TrackingStats,
 };
 use aim_trainer::game::calibration::{CalibrationProgress, PlayMode, PlaySession};
 use aim_trainer::game::calibration_run::CalibrationRun;
@@ -38,6 +38,7 @@ struct Scene {
     metrics: Option<TaskMetrics>,
     task_name: &'static str,
     offscreen: Vec<glam::Vec2>,
+    tracking: Option<TrackingStats>,
 }
 
 fn profile(calibrated: bool) -> PlayerProfile {
@@ -79,6 +80,8 @@ fn profile(calibrated: bool) -> PlayerProfile {
     p
 }
 
+const TRACKING: TrackingStats = TrackingStats { on_target_pct: 62.4, time_on_target_secs: 18.7, longest_on_target_secs: 3.4 };
+
 fn history() -> SessionHistory {
     let mut h = SessionHistory::new("default".into());
     let now = Utc::now();
@@ -105,7 +108,11 @@ fn history() -> SessionHistory {
             duration_secs: 40.0,
             tested_cm_360: *cm,
             tested_dpi: 800.0,
-            metrics: AggregatedTaskMetrics::compute(points, 12_000 - i as u64 * 900, 0),
+            metrics: if *task == "Smooth Tracking" {
+                AggregatedTaskMetrics::tracking(TRACKING)
+            } else {
+                AggregatedTaskMetrics::compute(points, 12_000 - i as u64 * 900, 0)
+            },
             aim: None,
             habits: None,
         });
@@ -196,6 +203,7 @@ fn base(name: &'static str, size: (u32, u32), screen: Screen, calibrated: bool) 
         metrics: None,
         task_name: "Flick Shot",
         offscreen: Vec::new(),
+        tracking: None,
     }
 }
 
@@ -400,6 +408,37 @@ fn scenes() -> Vec<Scene> {
         custom_metric_value: String::new(),
     });
     v.push(finished);
+
+    // Practice tracking: live score in the bar, the target green while on it.
+    let mut live = base("hud-practice-tracking", L, Screen::Home, false);
+    live.state.menu_open = false;
+    live.task_state = TaskState::Running;
+    live.task_name = "Smooth Tracking";
+    live.tracking = Some(TRACKING);
+    v.push(live);
+
+    let mut tracked = base("hud-tracking-finished", L, Screen::Home, false);
+    tracked.state.menu_open = false;
+    tracked.task_state = TaskState::Finished;
+    tracked.task_name = "Smooth Tracking";
+    tracked.tracking = Some(TRACKING);
+    tracked.metrics = Some(TaskMetrics {
+        task_name: "Smooth Tracking".into(),
+        score: TRACKING.score(),
+        accuracy: TRACKING.on_target_pct,
+        avg_reaction_time_ms: 0.0,
+        shots_fired: 0,
+        hits: 0,
+        misses: 0,
+        duration_secs: 30.0,
+        custom_metric_label: "",
+        custom_metric_value: String::new(),
+    });
+    v.push(tracked);
+
+    let mut track_detail = base("history-tracking", L, Screen::History, true);
+    track_detail.state.open_session = Some("s2".into());
+    v.push(track_detail);
     v
 }
 
@@ -441,6 +480,7 @@ fn render(gpu: &Gpu, mut scene: Scene, out_dir: &Path) {
         music_volume: 0.5,
         fps: 240,
         offscreen_targets: &scene.offscreen,
+        tracking: scene.tracking,
     };
 
     let ctx = egui::Context::default();

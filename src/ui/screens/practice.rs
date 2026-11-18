@@ -28,7 +28,7 @@ const SCENARIOS: [Scenario; 6] = [
         task: TaskType::Tracking,
         icon: icon::WAVE_SINE,
         name: "Tracking",
-        desc: "Keep your crosshair on a moving target.",
+        desc: "Keep your crosshair on a moving target. No shooting: points build while you stay on it.",
         meta: "30 seconds",
         key: "2",
     },
@@ -85,21 +85,31 @@ pub fn show(ui: &mut egui::Ui, _state: &mut UiState, model: &UiModel, actions: &
 
     let gap = ui.spacing().item_spacing.x;
     let cols = (((ui.available_width() + gap) / (MIN_CARD_WIDTH + gap)).floor() as usize).max(1);
+    // Every card is as tall as the tallest: the icon, name and description of the wordiest card
+    // set the height (measured on the frame before), and the count and key sit at the bottom.
+    let id = ui.id().with("practice_card_top");
+    let tallest_top: f32 = ui.ctx().data(|d| d.get_temp(id)).unwrap_or(0.0);
+    let mut measured = 0.0_f32;
     for row in SCENARIOS.chunks(cols) {
         ui.columns(cols, |c| {
             for (i, sc) in row.iter().enumerate() {
                 let resp = widgets::clickable_card(&mut c[i], false, |ui| {
                     ui.set_min_width(ui.available_width());
-                    ui.set_min_height(118.0);
-                    ui.spacing_mut().item_spacing.y = S1;
-                    ui.label(RichText::new(sc.icon).font(body(22.0)).color(ACCENT));
-                    ui.add_space(S1);
-                    ui.label(RichText::new(sc.name).font(medium(15.0)).color(TEXT));
-                    ui.label(RichText::new(sc.desc).font(body(13.0)).color(TEXT_SECONDARY));
-                    ui.add_space(S2);
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(sc.meta).font(body(12.0)).color(TEXT_MUTED));
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| keycap(ui, sc.key));
+                    // Columns lay out justified; card text reads left-aligned like the rest of the app.
+                    ui.with_layout(Layout::top_down(Align::Min), |ui| {
+                        ui.spacing_mut().item_spacing.y = S1;
+                        let top = ui.cursor().top();
+                        ui.label(RichText::new(sc.icon).font(body(22.0)).color(ACCENT));
+                        ui.add_space(S1);
+                        ui.label(RichText::new(sc.name).font(medium(15.0)).color(TEXT));
+                        ui.label(RichText::new(sc.desc).font(body(13.0)).color(TEXT_SECONDARY));
+                        let used = ui.cursor().top() - top;
+                        measured = measured.max(used);
+                        ui.add_space((tallest_top - used).max(0.0) + S2);
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(sc.meta).font(body(12.0)).color(TEXT_MUTED));
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| keycap(ui, sc.key));
+                        });
                     });
                 });
                 if resp.clicked() {
@@ -108,6 +118,10 @@ pub fn show(ui: &mut egui::Ui, _state: &mut UiState, model: &UiModel, actions: &
             }
         });
         ui.add_space(S2);
+    }
+    if (measured - tallest_top).abs() > 0.5 {
+        ui.ctx().data_mut(|d| d.insert_temp(id, measured));
+        ui.ctx().request_repaint();
     }
 }
 

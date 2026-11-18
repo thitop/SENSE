@@ -128,7 +128,7 @@ pub fn segment_hint(kind: TestKind, counted: bool) -> &'static str {
         (TestKind::Flick, false) => "A few shots to get used to this sensitivity",
         (TestKind::Flick, true) => "Shoot each target as it appears",
         (TestKind::Micro, _) => "Small targets close to your crosshair",
-        (TestKind::Tracking, _) => "Keep your crosshair on the moving target",
+        (TestKind::Tracking, _) => "Keep your crosshair on the moving target. No need to shoot",
         (TestKind::Recoil, _) => "Hold fire and pull down to stay on target",
         (TestKind::Placement, _) => "Aim at the corner before the target peeks",
         (TestKind::Strafe, _) => "Stop moving before you shoot",
