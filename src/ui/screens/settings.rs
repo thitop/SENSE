@@ -1,6 +1,7 @@
 use egui::{Align, Layout, RichText, TextEdit};
 use egui_phosphor::regular as icon;
 
+use crate::data::DisplayMode;
 use crate::game::calibration::{parse_dpi, primary_game, ConfidenceLevel};
 use crate::ui::screens::{header, section};
 use crate::ui::theme::*;
@@ -71,6 +72,23 @@ pub fn show(ui: &mut egui::Ui, state: &mut UiState, model: &UiModel, actions: &m
                     }
                 }
             });
+    });
+
+    card(ui, &mut |ui| {
+        section(ui, "Display");
+        caption(ui, "How SENSE fills your screen. Fullscreen uses your screen's own resolution at its highest refresh rate.");
+        const MODES: [DisplayMode; 2] = [DisplayMode::Window, DisplayMode::Fullscreen];
+        let current = MODES.iter().position(|m| *m == model.display_mode).unwrap_or(0);
+        let choices = [(icon::APP_WINDOW, "Window"), (icon::CORNERS_OUT, "Fullscreen")];
+        if let Some(i) = widgets::segmented(ui, "display_mode", &choices, current) {
+            actions.push(UiAction::SetDisplayMode(MODES[i]));
+        }
+        ui.add_space(S2);
+        ui.label(
+            RichText::new("F11 or Alt+Enter switches at any time.")
+                .font(body(12.0))
+                .color(TEXT_MUTED),
+        );
     });
 
     card(ui, &mut |ui| {

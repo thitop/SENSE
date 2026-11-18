@@ -12,7 +12,7 @@ pub use crate::sensitivity::blocks::{NextPick, RoundGuess, RoundTrace};
 pub use history::{SessionHistory, SessionRecord};
 pub use metrics::{AggregatedTaskMetrics, MetricPoint, TrackingStats};
 pub use profile::{PlayerProfile, ProfileManager};
-pub use settings::AppSettings;
+pub use settings::{AppSettings, DisplayMode, WindowPlacement};
 
 pub struct DataManager {
     base_dir: PathBuf,

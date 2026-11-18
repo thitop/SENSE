@@ -15,7 +15,7 @@ pub mod widgets;
 use egui::{vec2, Align, Align2, CornerRadius, CursorIcon, Frame, Layout, Margin, RichText, Sense};
 use egui_phosphor::regular as icon;
 
-use crate::data::{PlayerProfile, SessionHistory};
+use crate::data::{DisplayMode, PlayerProfile, SessionHistory};
 use crate::game::calibration::{CalibrationProgress, PlaySession};
 use crate::game::tasks::{TaskMetrics, TaskState, TaskType};
 use crate::sensitivity::games::GameProfile;
@@ -46,6 +46,7 @@ pub enum UiAction {
     SaveDpi(f64),
     SetMainGame(String),
     SetAudio { enabled: bool, volume: f32, music_volume: f32 },
+    SetDisplayMode(DisplayMode),
     CreateProfile(String),
     SelectProfile(String),
     DeleteProfile(String),
@@ -66,6 +67,7 @@ pub struct UiModel<'a> {
     pub audio_enabled: bool,
     pub volume: f32,
     pub music_volume: f32,
+    pub display_mode: DisplayMode,
     pub fps: u32,
     /// Screen-space directions (x right, y up) to live targets outside the view.
     pub offscreen_targets: &'a [glam::Vec2],

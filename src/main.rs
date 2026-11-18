@@ -8,10 +8,13 @@ mod habits;
 mod sensitivity;
 mod ui;
 
-use data::{DataManager, MetricPoint, PlayerProfile, SessionHistory, SessionRecord};
+use data::{
+    AppSettings, DataManager, DisplayMode, MetricPoint, PlayerProfile, SessionHistory, SessionRecord,
+    WindowPlacement,
+};
 use engine::{
     audio::{AudioManager, Music, Sfx, TrackingTicker},
-    camera::Camera, input::InputManager, renderer::{self, Renderer}, timing::Timing,
+    camera::Camera, display, input::InputManager, renderer::{self, Renderer}, timing::Timing,
 };
 use habits::recorder::AimRecorder;
 use habits::record::{AimLog, PlayContext};
@@ -35,7 +38,7 @@ use winit::{
     event::*,
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     keyboard::{KeyCode, PhysicalKey},
-    window::{Window, WindowId},
+    window::{Fullscreen, Window, WindowId},
 };
 
 struct GameState {
@@ -47,6 +50,11 @@ struct GameState {
     task_manager: TaskManager,
     sensitivity_engine: SensitivityEngine,
     data_manager: DataManager,
+    /// The app-wide settings as last saved, kept up to date by the Settings screen, the
+    /// fullscreen hotkeys and the window's moves.
+    settings: AppSettings,
+    /// Alt is down, for Alt+Enter.
+    alt_held: bool,
     ui_state: UiState,
     session: PlaySession,
     /// Cached session history of the active profile; refreshed whenever a session is recorded.
@@ -77,7 +85,7 @@ struct GameState {
 }
 
 impl GameState {
-    async fn new(window: Arc<Window>) -> Self {
+    async fn new(window: Arc<Window>, data_manager: DataManager, settings: AppSettings) -> Self {
         let size = window.inner_size();
         let renderer = Renderer::new(window.clone()).await;
         let aspect_ratio = size.width as f32 / size.height.max(1) as f32;
@@ -89,9 +97,7 @@ impl GameState {
         let timing = Timing::new(1000.0); // 1000 Hz physics tick
         let mut audio_manager = AudioManager::new();
 
-        let data_manager = DataManager::new();
         // Sound settings from last time. With no sound device, effects stay off regardless.
-        let settings = data_manager.load_settings();
         audio_manager.is_enabled &= settings.sound_effects;
         audio_manager.volume = settings.effects_volume;
         audio_manager.set_music_volume(settings.music_volume);
@@ -135,6 +141,8 @@ impl GameState {
             task_manager,
             sensitivity_engine,
             data_manager,
+            settings,
+            alt_held: false,
             ui_state: UiState::new(),
             session: PlaySession {
                 mode: PlayMode::Practice,
@@ -191,6 +199,54 @@ impl GameState {
         self.player_dpi = dpi;
         self.sensitivity_engine.player_dpi = dpi;
         self.set_cm_360(self.current_cm_360);
+    }
+
+    fn save_settings(&self) {
+        if let Err(e) = self.data_manager.save_settings(&self.settings) {
+            log::warn!("Could not save the settings: {e}");
+        }
+    }
+
+    /// Switch between window and fullscreen right away and remember it for the next launch.
+    /// Leaving fullscreen puts the window back where it was.
+    fn set_display_mode(&mut self, mode: DisplayMode) {
+        let window = &self.renderer.window;
+        let fullscreen = match mode {
+            DisplayMode::Window => None,
+            DisplayMode::Fullscreen => match window.current_monitor().or_else(|| window.primary_monitor()) {
+                Some(monitor) => Some(display::fullscreen_on(monitor)),
+                None => {
+                    log::warn!("No screen found to go fullscreen on");
+                    return;
+                }
+            },
+        };
+        self.settings.display_mode = mode;
+        window.set_fullscreen(fullscreen);
+        self.save_settings();
+    }
+
+    /// Note where the window is in window mode, so the next launch opens it there. Saved to
+    /// disk with the other settings (on quit at the latest).
+    fn track_window_placement(&mut self) {
+        let window = &self.renderer.window;
+        if window.fullscreen().is_some() || window.is_minimized() == Some(true) {
+            return;
+        }
+        let maximized = window.is_maximized();
+        // A maximised window keeps the size it goes back to when restored.
+        let placement = match (maximized, self.settings.window) {
+            (true, Some(before)) => WindowPlacement { maximized: true, ..before },
+            _ => {
+                let Ok(pos) = window.outer_position() else { return };
+                let size = window.inner_size();
+                if !renderer::can_draw(size) {
+                    return;
+                }
+                WindowPlacement { x: pos.x, y: pos.y, width: size.width, height: size.height, maximized }
+            }
+        };
+        self.settings.window = Some(placement);
     }
 
     fn lock_cursor(&mut self, locked: bool) {
@@ -490,11 +546,12 @@ impl GameState {
                 self.audio_manager.is_enabled = enabled;
                 self.audio_manager.volume = volume;
                 self.audio_manager.set_music_volume(music_volume);
-                let settings = data::AppSettings { sound_effects: enabled, effects_volume: volume, music_volume };
-                if let Err(e) = self.data_manager.save_settings(&settings) {
-                    log::warn!("Could not save the settings: {e}");
-                }
+                self.settings.sound_effects = enabled;
+                self.settings.effects_volume = volume;
+                self.settings.music_volume = music_volume;
+                self.save_settings();
             }
+            UiAction::SetDisplayMode(mode) => self.set_display_mode(mode),
             UiAction::CreateProfile(name) => {
                 let game = self
                     .data_manager
@@ -763,6 +820,7 @@ impl GameState {
             audio_enabled: self.audio_manager.is_enabled,
             volume: self.audio_manager.volume,
             music_volume: self.audio_manager.music_volume(),
+            display_mode: self.settings.display_mode,
             fps: self.timing.fps(),
             offscreen_targets: &offscreen_targets,
             tracking: self.task_manager.tracking_stats(),
@@ -860,6 +918,10 @@ impl GameState {
             _ => None,
         };
         match key {
+            KeyCode::F11 => self.set_display_mode(self.settings.display_mode.toggled()),
+            KeyCode::Enter | KeyCode::NumpadEnter if self.alt_held => {
+                self.set_display_mode(self.settings.display_mode.toggled())
+            }
             KeyCode::Escape => self.on_escape(),
             _ if practicing && practice_task.is_some() => {
                 self.apply_action(UiAction::StartPractice(practice_task.unwrap()));
@@ -881,12 +943,30 @@ impl ApplicationHandler for App {
         if self.state.is_none() {
             let icon = ui::app_icon::app_icon_rgba(ui::app_icon::ICON_SIZE);
             let icon = winit::window::Icon::from_rgba(icon, ui::app_icon::ICON_SIZE, ui::app_icon::ICON_SIZE).ok();
-            #[allow(unused_mut)]
+            let data_manager = DataManager::new();
+            let settings = data_manager.load_settings();
+            let monitors: Vec<_> = event_loop.available_monitors().collect();
+            let screens: Vec<_> = monitors.iter().map(display::screen_rect).collect();
+            // The window comes back where it was, if that screen is still there.
+            let placement = settings.window.and_then(|p| display::screen_of(&p, &screens).map(|i| (p, i)));
             let mut window_attributes = Window::default_attributes()
                 .with_title(ui::app_icon::APP_NAME)
                 .with_window_icon(icon.clone())
-                .with_inner_size(winit::dpi::LogicalSize::new(1280, 720))
                 .with_min_inner_size(winit::dpi::LogicalSize::new(1024, 640));
+            window_attributes = match placement {
+                Some((p, _)) => window_attributes
+                    .with_inner_size(winit::dpi::PhysicalSize::new(p.width, p.height))
+                    .with_position(winit::dpi::PhysicalPosition::new(p.x, p.y))
+                    .with_maximized(p.maximized),
+                None => window_attributes.with_inner_size(winit::dpi::LogicalSize::new(1280, 720)),
+            };
+            if settings.display_mode == DisplayMode::Fullscreen {
+                let monitor = placement
+                    .map(|(_, i)| monitors[i].clone())
+                    .or_else(|| event_loop.primary_monitor())
+                    .or_else(|| monitors.first().cloned());
+                window_attributes = window_attributes.with_fullscreen(monitor.map(display::fullscreen_on));
+            }
             #[cfg(target_os = "windows")]
             {
                 use winit::platform::windows::WindowAttributesExtWindows;
@@ -894,7 +974,7 @@ impl ApplicationHandler for App {
             }
 
             let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
-            let state = pollster::block_on(GameState::new(window));
+            let state = pollster::block_on(GameState::new(window, data_manager, settings));
             self.state = Some(state);
         }
     }
@@ -933,15 +1013,34 @@ impl ApplicationHandler for App {
         match event {
             WindowEvent::CloseRequested => {
                 state.input.set_cursor_locked(&state.renderer.window, false);
+                state.track_window_placement();
+                state.save_settings();
                 event_loop.exit();
             }
             WindowEvent::Resized(physical_size) => {
                 state.renderer.resize(physical_size);
                 state.camera.update_aspect_ratio(physical_size.width, physical_size.height);
                 state.input.recenter_if_locked(&state.renderer.window);
+                state.track_window_placement();
             }
-            WindowEvent::Moved(_) | WindowEvent::Focused(true) => {
+            WindowEvent::Moved(_) => {
                 state.input.recenter_if_locked(&state.renderer.window);
+                state.track_window_placement();
+            }
+            WindowEvent::Focused(true) => {
+                state.input.recenter_if_locked(&state.renderer.window);
+            }
+            // Exclusive fullscreen stays on top of everything: step aside when another app
+            // takes over (Alt+Tab), as fullscreen games do.
+            WindowEvent::Focused(false) => {
+                // Alt+Tab: the Alt release goes to the other app.
+                state.alt_held = false;
+                if matches!(state.renderer.window.fullscreen(), Some(Fullscreen::Exclusive(_))) {
+                    state.renderer.window.set_minimized(true);
+                }
+            }
+            WindowEvent::ModifiersChanged(modifiers) => {
+                state.alt_held = modifiers.state().alt_key();
             }
             WindowEvent::KeyboardInput {
                 event:

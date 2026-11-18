@@ -200,6 +200,57 @@ pub fn ghost_button(ui: &mut Ui, icon: Option<&str>, label: &str) -> Response {
     button(ui, icon, label, Kind::Ghost)
 }
 
+/// A row of equal-width choices, one of them picked (`selected`). Returns the choice clicked
+/// that wasn't already picked.
+pub fn segmented(ui: &mut Ui, id: &str, choices: &[(&str, &str)], selected: usize) -> Option<usize> {
+    const INSET: f32 = 3.0;
+    let galleys: Vec<_> = choices
+        .iter()
+        .map(|(icon, label)| {
+            ui.painter()
+                .layout_no_wrap(format!("{icon}  {label}"), medium(14.0), egui::Color32::PLACEHOLDER)
+        })
+        .collect();
+    let seg_w = galleys.iter().map(|g| g.size().x).fold(0.0, f32::max) + S4 * 2.0;
+    let size = vec2(seg_w * choices.len() as f32 + INSET * 2.0, CONTROL_HEIGHT + INSET * 2.0);
+    let (outer, _) = ui.allocate_exact_size(size, Sense::hover());
+    ui.painter().rect(
+        outer,
+        CornerRadius::same(R_CONTROL + INSET as u8),
+        BG,
+        Stroke::new(1.0_f32, BORDER_STRONG),
+        StrokeKind::Inside,
+    );
+
+    let mut clicked = None;
+    for (i, galley) in galleys.into_iter().enumerate() {
+        let min = outer.min + vec2(INSET + seg_w * i as f32, INSET);
+        let rect = egui::Rect::from_min_size(min, vec2(seg_w, CONTROL_HEIGHT));
+        let resp = ui.interact(rect, ui.id().with((id, i)), Sense::click());
+        let is_selected = i == selected;
+        resp.widget_info(|| {
+            WidgetInfo::selected(WidgetType::RadioButton, ui.is_enabled(), is_selected, choices[i].1)
+        });
+        let t = ui.ctx().animate_bool_with_time(resp.id, resp.hovered(), 0.12);
+        let (fill, stroke, text_color) = if is_selected {
+            (SURFACE_RAISED, Stroke::new(1.0_f32, ACCENT_BORDER.lerp_to_gamma(ACCENT, 0.35)), TEXT)
+        } else {
+            (SURFACE_RAISED.gamma_multiply(t * 0.6), Stroke::NONE, TEXT_MUTED.lerp_to_gamma(TEXT, t))
+        };
+        ui.painter()
+            .rect(rect, CornerRadius::same(R_CONTROL), fill, stroke, StrokeKind::Inside);
+        ui.painter()
+            .galley(rect.center() - galley.size() / 2.0, galley, text_color);
+        if resp.clicked() && !is_selected {
+            clicked = Some(i);
+        }
+        if !is_selected {
+            resp.on_hover_cursor(CursorIcon::PointingHand);
+        }
+    }
+    clicked
+}
+
 /// Outlined red button for destructive confirmations.
 pub fn danger_button(ui: &mut Ui, label: &str) -> Response {
     let galley = ui.painter().layout_no_wrap(label.to_string(), medium(13.0), DANGER);
