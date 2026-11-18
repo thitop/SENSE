@@ -242,3 +242,19 @@ fn one_run_is_not_a_pool() {
     let a = run(0, 800.0, 50.0, &CMS);
     assert_eq!(pooled_answer(&[&a]), None);
 }
+
+#[test]
+fn a_pool_wider_than_the_newest_run_alone_is_not_used() {
+    // Real play: 33.1 cm ±9% pooled with 46.2 ±26% (they passed the agreement test) came out
+    // at 43.0 ±37%: wider than either run, pulled toward the vaguer one. Pooling that widens
+    // the newest run's answer says the runs conflict, so the newest run shows alone.
+    let runs: Vec<RunRecord> = serde_json::from_str(include_str!("fixtures/pool_wider_than_newest.json")).unwrap();
+    let latest = runs.iter().map(|r| r.at).max().unwrap();
+    let picked = runs_to_pool(&runs, latest, 400.0);
+    assert_eq!(picked[0].at, latest);
+    let alone = pool(&picked[..1]).unwrap();
+    let pooled = pool(&newest_agreeing(&picked)).unwrap();
+    assert!(is_answer(pooled.rel_uncertainty));
+    assert!(pooled.rel_uncertainty > alone.rel_uncertainty, "the pool is wider than the newest run");
+    assert_eq!(pooled_answer(&picked), None);
+}
