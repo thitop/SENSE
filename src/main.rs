@@ -389,6 +389,7 @@ impl GameState {
         self.task_manager.set_task(TaskType::Flick);
         self.set_cm_360(self.profile_cm_360());
         self.ui_state.show_all_games = false;
+        self.ui_state.replay.arm_autoplay();
         self.open_menu(Screen::Sensitivity);
     }
 

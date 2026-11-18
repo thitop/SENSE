@@ -1,6 +1,8 @@
 //! The calibration replay as text and numbers: what each round tested, what the tests said,
 //! what SENSE guessed and why the next round went where it did. Pure; drawing lives elsewhere.
 
+use chrono::{DateTime, Utc};
+
 use crate::data::{CalibrationResult, NextPick, RoundGuess, RoundSignals, RoundTrace};
 use crate::sensitivity::blocks::SignalCounts;
 use crate::sensitivity::pooling::MAX_ANSWER_UNCERTAINTY;
@@ -237,5 +239,94 @@ fn result_view(cal: &CalibrationResult) -> ResultView {
         cm_360: (!cal.no_answer).then_some(cal.cm_360),
         rel_uncertainty: d.and_then(|d| d.result_rel_uncertainty),
         lines,
+    }
+}
+
+/// Seconds each round (and the result) stays on screen while the replay plays.
+pub const STEP_SECS: f64 = 1.6;
+
+/// Playback position of the replay. Pure: the drawing code feeds it the clock.
+/// `step` runs `0..rounds-1` for the rounds and `rounds` for the result; `steps` below is `rounds + 1`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ReplayState {
+    pub step: usize,
+    pub playing: bool,
+    pub last_step_at: f64,
+    /// Set when a run finishes; the first time the replay is on screen it starts playing.
+    pub autoplay_armed: bool,
+    /// The "How we got this number" link asks the page to scroll to the replay.
+    pub scroll_pending: bool,
+    /// (result.at, pooled_runs) of the result being replayed.
+    key: Option<(DateTime<Utc>, usize)>,
+}
+
+impl ReplayState {
+    /// Call every frame with the shown result's identity; a different result starts over.
+    pub fn sync(&mut self, at: DateTime<Utc>, pooled_runs: usize) {
+        let key = Some((at, pooled_runs));
+        if self.key != key {
+            if self.key.is_some() {
+                self.step = 0;
+                self.playing = false;
+            }
+            self.key = key;
+        }
+    }
+
+    pub fn arm_autoplay(&mut self) {
+        self.autoplay_armed = true;
+    }
+
+    pub fn play(&mut self, now: f64, steps: usize) {
+        if self.step + 1 >= steps {
+            self.step = 0;
+        }
+        self.playing = true;
+        self.last_step_at = now;
+    }
+
+    pub fn pause(&mut self) {
+        self.playing = false;
+    }
+
+    pub fn go_to(&mut self, step: usize, steps: usize) {
+        self.step = step.min(steps.saturating_sub(1));
+        self.playing = false;
+    }
+
+    pub fn prev(&mut self, steps: usize) {
+        self.go_to(self.step.saturating_sub(1), steps);
+    }
+
+    pub fn next(&mut self, steps: usize) {
+        self.go_to(self.step + 1, steps);
+    }
+
+    pub fn tick(&mut self, now: f64, steps: usize) {
+        if !self.playing {
+            return;
+        }
+        // Slack for clocks that add up to a hair under STEP_SECS.
+        if now - self.last_step_at >= STEP_SECS - 1e-9 {
+            self.step = (self.step + 1).min(steps.saturating_sub(1));
+            self.last_step_at = now;
+            if self.step + 1 >= steps {
+                self.playing = false;
+            }
+        }
+    }
+
+    pub fn on_visible(&mut self, now: f64, steps: usize) {
+        if self.autoplay_armed {
+            self.autoplay_armed = false;
+            self.step = 0;
+            self.play(now, steps);
+        }
+    }
+
+    pub fn link_clicked(&mut self, now: f64, steps: usize) {
+        self.scroll_pending = true;
+        self.step = 0;
+        self.play(now, steps);
     }
 }

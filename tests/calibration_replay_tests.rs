@@ -422,3 +422,94 @@ mod replay_view {
         );
     }
 }
+
+mod replay_playback {
+    use aim_trainer::ui::replay::{ReplayState, STEP_SECS};
+    use chrono::{TimeZone, Utc};
+
+    #[test]
+    fn tick_advances_every_step_secs_and_stops_on_result() {
+        let mut s = ReplayState::default();
+        s.play(0.0, 8);
+        assert!(s.playing);
+        s.tick(1.59, 8);
+        assert_eq!(s.step, 0);
+        s.tick(STEP_SECS, 8);
+        assert_eq!(s.step, 1);
+        for i in 2..=7 {
+            s.tick(STEP_SECS * i as f64, 8);
+            assert_eq!(s.step, i);
+        }
+        assert!(!s.playing);
+        s.tick(STEP_SECS * 20.0, 8);
+        assert_eq!(s.step, 7);
+        assert!(!s.playing);
+    }
+
+    #[test]
+    fn play_on_result_restarts() {
+        let mut s = ReplayState::default();
+        s.go_to(7, 8);
+        s.play(3.0, 8);
+        assert_eq!(s.step, 0);
+        assert!(s.playing);
+    }
+
+    #[test]
+    fn manual_step_stops_playback() {
+        let mut s = ReplayState::default();
+        s.play(0.0, 8);
+        s.next(8);
+        assert!(!s.playing);
+        assert_eq!(s.step, 1);
+        s.go_to(0, 8);
+        s.prev(8);
+        assert_eq!(s.step, 0);
+        s.go_to(99, 8);
+        assert_eq!(s.step, 7);
+    }
+
+    #[test]
+    fn autoplay_waits_until_visible() {
+        let mut s = ReplayState::default();
+        s.arm_autoplay();
+        assert!(!s.playing);
+        s.on_visible(5.0, 8);
+        assert!(s.playing);
+        assert_eq!(s.step, 0);
+        assert!(!s.autoplay_armed);
+        s.next(8);
+        s.on_visible(6.0, 8);
+        assert!(!s.playing);
+        assert_eq!(s.step, 1);
+    }
+
+    #[test]
+    fn link_click_scrolls_and_plays() {
+        let mut s = ReplayState::default();
+        s.link_clicked(2.0, 8);
+        assert!(s.scroll_pending);
+        assert!(s.playing);
+        assert_eq!(s.step, 0);
+    }
+
+    #[test]
+    fn new_result_resets_state() {
+        let a = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
+        let b = Utc.with_ymd_and_hms(2026, 1, 2, 0, 0, 0).unwrap();
+        let mut s = ReplayState::default();
+        s.sync(a, 1);
+        s.go_to(4, 8);
+        s.sync(a, 1);
+        assert_eq!(s.step, 4);
+        s.arm_autoplay();
+        s.play(0.0, 8);
+        s.sync(b, 1);
+        assert_eq!(s.step, 0);
+        assert!(!s.playing);
+        assert!(s.autoplay_armed);
+        s.go_to(3, 8);
+        s.sync(b, 3);
+        assert_eq!(s.step, 0);
+    }
+}

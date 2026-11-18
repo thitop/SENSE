@@ -114,6 +114,7 @@ pub struct UiState {
     // Sensitivity screen
     pub copied_at: Option<f64>,
     pub show_all_games: bool,
+    pub replay: replay::ReplayState,
     pub convert_game_id: Option<String>,
     pub convert_value: String,
     // History
@@ -135,6 +136,7 @@ impl UiState {
             pending_delete: None,
             copied_at: None,
             show_all_games: false,
+            replay: replay::ReplayState::default(),
             convert_game_id: None,
             convert_value: String::new(),
             open_session: None,
