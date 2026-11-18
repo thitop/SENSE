@@ -9,3 +9,27 @@
   spec, vectorised by `tools/vectorize_questions.py`. The raw images are in `originals/`.
 
 No third-party artwork is used in the placeholders.
+
+## Status per file
+
+- Final AI art (vectorised): `grip_palm`, `grip_claw`, `grip_fingertip`, `pivot_wrist`,
+  `pivot_fingers`, `pad_small`, `pad_medium`.
+- Still placeholders: `pivot_arm`, `pivot_shoulder` (originals being regenerated), `pad_large`
+  (traces to about 290 KB even at the coarsest settings, over the 150 KB limit), `not_sure`
+  (no original).
+
+## Regenerating from the originals
+
+1. Generate the pictures with the prompts in the design spec; save them as `originals/<id>.webp` or `.png`.
+2. Set up the tool once (a venv inside the repo, ignored by git):
+   `python -m venv .venv-art`, then `.venv-art/Scripts/python.exe -m pip install -r tools/requirements-art.txt`.
+   The vtracer Python wheel segfaults on Python 3.15, so also run `cargo install vtracer --root .venv-art`;
+   the script prefers that CLI (`.venv-art/bin/vtracer`) and falls back to the wheel.
+3. Run `.venv-art/Scripts/python.exe tools/vectorize_questions.py assets/questions/originals <out_dir>`.
+   Background `#0B0C0E` becomes transparent, fills snap to the five-colour palette, and the tool starts at
+   `filter_speckle=8`, `color_precision=5`, falling back to coarser settings until the file is at most 150 KB.
+   It exits non-zero if a picture still does not fit.
+4. Copy the SVGs you want from `<out_dir>` into `assets/questions/`, then run
+   `cargo test --test player_questions_ui_tests`.
+
+`tools/selftest_vectorize.py` checks the tool on a synthetic image.
