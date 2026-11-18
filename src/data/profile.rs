@@ -29,6 +29,9 @@ pub struct PlayerProfile {
     /// Whether the player knows their own sensitivity; None on older profiles (inferred).
     #[serde(default)]
     pub sens_known: Option<bool>,
+    /// Profiles saved before crosshair settings existed get the crosshair SENSE always had.
+    #[serde(default)]
+    pub crosshair: super::crosshair::CrosshairStyle,
 }
 
 fn default_onboarded() -> bool {
@@ -73,6 +76,7 @@ impl PlayerProfile {
             recent_runs: Vec::new(),
             setup: None,
             sens_known: None,
+            crosshair: Default::default(),
         }
     }
 

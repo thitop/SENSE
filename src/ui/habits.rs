@@ -184,18 +184,13 @@ fn draw(
         for p in not_seen {
             ui.label(RichText::new(not_seen_line(p)).font(body(12.0)).color(TEXT_SECONDARY));
             if let Some(task) = practice_for(p) {
-                if widgets::secondary_button(ui, None, &arrows("Practise anyway \u{2192}")).clicked() {
+                if widgets::secondary_button(ui, None, &widgets::arrows("Practise anyway \u{2192}")).clicked() {
                     actions.push(UiAction::StartPractice(task));
                 }
             }
             ui.add_space(S1);
         }
     }
-}
-
-/// The UI fonts have no right-arrow glyph; the icon font's arrow stands in for it.
-fn arrows(text: &str) -> String {
-    text.replace('\u{2192}', icon::ARROW_RIGHT)
 }
 
 fn muted(ui: &mut egui::Ui, text: &str) {
@@ -219,10 +214,10 @@ fn card(
             verdict_pill(ui, v);
         }
         ui.label(RichText::new(&l.value).font(display(22.0)).color(WARN));
-        ui.label(RichText::new(arrows(&l.why)).font(body(12.0)).color(TEXT_SECONDARY));
+        ui.label(RichText::new(widgets::arrows(&l.why)).font(body(12.0)).color(TEXT_SECONDARY));
         if let Some(line) = &l.progress {
             ui.add_space(S1);
-            ui.label(RichText::new(arrows(line)).font(body(12.0)).color(TEXT_MUTED));
+            ui.label(RichText::new(widgets::arrows(line)).font(body(12.0)).color(TEXT_MUTED));
             if p.points.len() >= 2 {
                 let mut values = vec![f.value];
                 values.extend(&p.points);

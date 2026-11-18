@@ -4,6 +4,7 @@ use std::sync::Arc;
 use winit::window::Window;
 
 use super::camera::Camera;
+use crate::data::CrosshairStyle;
 use super::geometry::{create_room, create_sphere, Mesh, Vertex};
 
 #[repr(C)]
@@ -69,6 +70,8 @@ pub struct Renderer {
     // Crosshair 2D pipeline
     pub crosshair_pipeline: wgpu::RenderPipeline,
     pub crosshair_vertex_buffer: wgpu::Buffer,
+    crosshair: CrosshairStyle,
+    crosshair_vertex_count: u32,
 
     // Egui renderer integration
     pub egui_renderer: egui_wgpu::Renderer,
@@ -261,7 +264,7 @@ impl Renderer {
                 compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::LineList,
+                topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: None,
@@ -307,13 +310,15 @@ impl Renderer {
             mapped_at_creation: false,
         });
 
-        let ch_color = [0.0, 1.0, 0.2, 0.95];
-        let crosshair_verts = Self::build_crosshair_verts(width, height, 8.0, 3.0, ch_color);
-        let crosshair_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let crosshair = CrosshairStyle::default();
+        let crosshair_verts = crosshair_vertices(&crosshair, width, height);
+        let crosshair_vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Crosshair Vertex Buffer"),
-            contents: bytemuck::cast_slice(&crosshair_verts),
+            size: (std::mem::size_of::<CrosshairVertex>() * MAX_CROSSHAIR_VERTICES) as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
+        queue.write_buffer(&crosshair_vertex_buffer, 0, bytemuck::cast_slice(&crosshair_verts));
 
         // Initialize egui_wgpu renderer
         let egui_renderer = egui_wgpu::Renderer::new(&device, config.format, None, 1, false);
@@ -338,6 +343,8 @@ impl Renderer {
             dynamic_index_buffer,
             crosshair_pipeline,
             crosshair_vertex_buffer,
+            crosshair,
+            crosshair_vertex_count: crosshair_verts.len() as u32,
             egui_renderer,
         }
     }
@@ -380,32 +387,22 @@ impl Renderer {
             self.surface.configure(&self.device, &self.config);
             self.depth_view = Self::create_depth_texture(&self.device, &self.config);
 
-            let ch_color = [0.0, 1.0, 0.2, 0.95];
-            let ch_verts = Self::build_crosshair_verts(new_size.width, new_size.height, 8.0, 3.0, ch_color);
-            self.queue.write_buffer(&self.crosshair_vertex_buffer, 0, bytemuck::cast_slice(&ch_verts));
+            self.upload_crosshair();
         }
     }
 
-    fn build_crosshair_verts(width: u32, height: u32, len_px: f32, gap_px: f32, col: [f32; 4]) -> [CrosshairVertex; 8] {
-        let w = width.max(1) as f32;
-        let h = height.max(1) as f32;
+    /// Draw `style` from the next frame on. Cheap when it hasn't changed.
+    pub fn set_crosshair(&mut self, style: CrosshairStyle) {
+        if style != self.crosshair {
+            self.crosshair = style;
+            self.upload_crosshair();
+        }
+    }
 
-        let ndc_dx = (len_px / w) * 2.0;
-        let ndc_gap_x = (gap_px / w) * 2.0;
-
-        let ndc_dy = (len_px / h) * 2.0;
-        let ndc_gap_y = (gap_px / h) * 2.0;
-
-        [
-            CrosshairVertex { position: [-ndc_gap_x - ndc_dx, 0.0], color: col },
-            CrosshairVertex { position: [-ndc_gap_x, 0.0], color: col },
-            CrosshairVertex { position: [ndc_gap_x, 0.0], color: col },
-            CrosshairVertex { position: [ndc_gap_x + ndc_dx, 0.0], color: col },
-            CrosshairVertex { position: [0.0, ndc_gap_y], color: col },
-            CrosshairVertex { position: [0.0, ndc_gap_y + ndc_dy], color: col },
-            CrosshairVertex { position: [0.0, -ndc_gap_y - ndc_dy], color: col },
-            CrosshairVertex { position: [0.0, -ndc_gap_y], color: col },
-        ]
+    fn upload_crosshair(&mut self) {
+        let verts = crosshair_vertices(&self.crosshair, self.size.width, self.size.height);
+        self.queue.write_buffer(&self.crosshair_vertex_buffer, 0, bytemuck::cast_slice(&verts));
+        self.crosshair_vertex_count = verts.len() as u32;
     }
 
     pub fn update_camera(&mut self, camera: &Camera) {
@@ -538,7 +535,7 @@ impl Renderer {
 
             crosshair_pass.set_pipeline(&self.crosshair_pipeline);
             crosshair_pass.set_vertex_buffer(0, self.crosshair_vertex_buffer.slice(..));
-            crosshair_pass.draw(0..8, 0..1);
+            crosshair_pass.draw(0..self.crosshair_vertex_count, 0..1);
         }
 
         // 4. Egui UI Overlay Pass
@@ -606,4 +603,34 @@ pub fn on_surface_error(e: &wgpu::SurfaceError) -> SurfaceAction {
 /// A minimised window has no area; the surface can't be configured or drawn to.
 pub fn can_draw(size: winit::dpi::PhysicalSize<u32>) -> bool {
     size.width > 0 && size.height > 0
+}
+
+/// Two triangles per pixel rectangle (see [`CrosshairStyle::shape`]), in clip space.
+const MAX_CROSSHAIR_VERTICES: usize = crate::data::crosshair::MAX_RECTS * 6;
+
+/// The crosshair as triangles, centred on the screen's centre pixel: black outline first, the
+/// colour on top.
+pub fn crosshair_vertices(style: &CrosshairStyle, width: u32, height: u32) -> Vec<CrosshairVertex> {
+    let (w, h) = (width.max(1) as f32, height.max(1) as f32);
+    let (cx, cy) = ((width / 2) as i32, (height / 2) as i32);
+    let shape = style.shape();
+    let fill = style.linear_rgba();
+    let outline = [0.0, 0.0, 0.0, fill[3]];
+    let to_ndc = |x: i32, y: i32| [(x as f32 / w) * 2.0 - 1.0, 1.0 - (y as f32 / h) * 2.0];
+    let mut verts = Vec::with_capacity(MAX_CROSSHAIR_VERTICES);
+    let rects = shape.outline.iter().map(|r| (r, outline)).chain(shape.fill.iter().map(|r| (r, fill)));
+    for (r, color) in rects {
+        let (x0, y0) = (cx + r.x, cy + r.y);
+        let (x1, y1) = (x0 + r.w as i32, y0 + r.h as i32);
+        let corner = |x, y| CrosshairVertex { position: to_ndc(x, y), color };
+        verts.extend([
+            corner(x0, y0),
+            corner(x1, y0),
+            corner(x1, y1),
+            corner(x0, y0),
+            corner(x1, y1),
+            corner(x0, y1),
+        ]);
+    }
+    verts
 }

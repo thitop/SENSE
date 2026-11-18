@@ -175,6 +175,7 @@ fn sensitivity_texts(cal: CalibrationResult) -> Vec<String> {
         fps: 240,
         offscreen_targets: &[],
         tracking: None,
+        display_mode: aim_trainer::data::DisplayMode::Window,
     };
     let mut state = UiState::new();
     state.screen = Screen::Sensitivity;

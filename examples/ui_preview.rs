@@ -7,9 +7,11 @@ use std::fs;
 use std::path::Path;
 
 use aim_trainer::data::{
-    AggregatedTaskMetrics, CalibrationResult, CalibrationRound, MetricPoint, PlayerProfile,
-    SessionHistory, SessionRecord, TrackingStats,
+    AggregatedTaskMetrics, CalibrationResult, CalibrationRound, CrosshairStyle, DisplayMode, EstimateRecord, MetricPoint, NextPick,
+    PlayerProfile, RoundGuess, RoundSignals, RoundTrace, RunDiagnostics, SessionHistory, SessionRecord,
+    TrackingStats,
 };
+use aim_trainer::sensitivity::blocks::SignalCounts;
 use aim_trainer::game::calibration::{CalibrationProgress, PlayMode, PlaySession};
 use aim_trainer::game::calibration_run::CalibrationRun;
 use aim_trainer::sensitivity::combiner::TestKind;
@@ -42,6 +44,129 @@ struct Scene {
     task_name: &'static str,
     offscreen: Vec<glam::Vec2>,
     tracking: Option<TrackingStats>,
+    display_mode: DisplayMode,
+}
+
+/// One round of the sample run: tested cm, range before it, what it concluded, the counts
+/// (too fast, too slow, tie) for Flicking / Micro-adjustment / Tracking, the guess after it, the
+/// next pick and the range that pick was allowed within.
+struct SampleRound {
+    cm: f64,
+    range: (f64, f64),
+    conclusion: PsaRoundConclusion,
+    counts: [(usize, usize, usize); 3],
+    guess: RoundGuess,
+    next: NextPick,
+    pick: (f64, f64),
+}
+
+/// A 7-round run that settles on 34.2 cm, as `BlockScheduler` played it with these counts
+/// (taken from a real scheduler run). Round 2 leans "too slow" by chance, so the fit runs off
+/// below the search range and round 3 goes as far as it can (15 cm); later rounds bring the
+/// guess back up past the range, as the fit's reach allows.
+fn sample_rounds() -> Vec<SampleRound> {
+    use NextPick::*;
+    use PsaRoundConclusion::*;
+    let guess = |cm_360, rel_uncertainty| RoundGuess::Guess { cm_360, rel_uncertainty };
+    let r = |cm, range, conclusion, counts, guess, next, pick| SampleRound {
+        cm,
+        range,
+        conclusion,
+        counts,
+        guess,
+        next,
+        pick,
+    };
+    // The pick range is the bounds after round 1 (bisection), then the fit's reach: the bounds
+    // after the round, widened by 20% each way within 15..80.
+    vec![
+        r(47.5, (15.0, 80.0), TooSlowNeedFaster, [(1, 6, 2), (1, 4, 1), (4, 9, 3)],
+            RoundGuess::OneSensitivity, Midpoint { cm_360: 31.25 }, (15.0, 47.5)),
+        r(31.25, (15.0, 47.5), TooSlowNeedFaster, [(2, 5, 2), (1, 4, 1), (5, 8, 3)],
+            guess(14.17, 3.27), FitClamped { guess_cm: 14.17, cm_360: 15.0 }, (15.0, 37.5)),
+        r(15.0, (15.0, 31.25), TooFastNeedSlower, [(8, 0, 1), (5, 1, 0), (11, 3, 2)],
+            guess(27.1, 0.20), FitEstimate { cm_360: 27.1 }, (15.0, 37.5)),
+        r(27.1, (15.0, 31.25), TooFastNeedSlower, [(8, 1, 0), (5, 1, 0), (12, 2, 2)],
+            guess(32.4, 0.15), FitEstimate { cm_360: 32.4 }, (21.03, 37.5)),
+        r(32.4, (26.29, 31.25), TooFastNeedSlower, [(6, 2, 1), (3, 2, 1), (8, 6, 2)],
+            guess(34.07, 0.14), FitEstimate { cm_360: 34.07 }, (25.0, 37.5)),
+        r(34.07, (31.25, 31.25), BalancedNarrow, [(3, 3, 3), (2, 2, 2), (6, 6, 4)],
+            guess(34.09, 0.12), FitEstimate { cm_360: 34.09 }, (25.0, 37.5)),
+        r(34.09, (31.25, 31.25), TooFastNeedSlower, [(3, 3, 3), (2, 2, 2), (8, 7, 1)],
+            guess(34.24, 0.11), Last, (31.25, 31.25)),
+    ]
+}
+
+fn sample_diagnostics() -> RunDiagnostics {
+    let est = |test: &str, cm_360: f64, rel_uncertainty: f64| EstimateRecord {
+        test: test.into(),
+        cm_360,
+        rel_uncertainty,
+    };
+    let rounds = sample_rounds()
+        .into_iter()
+        .map(|r| RoundSignals {
+            tested_cm_360: r.cm,
+            signals: ["Flicking", "Micro-adjustment", "Tracking"]
+                .iter()
+                .zip(r.counts)
+                .map(|(test, (too_fast, too_slow, direct))| {
+                    (test.to_string(), SignalCounts { too_fast, too_slow, direct })
+                })
+                .collect(),
+            pairs: vec![],
+            trace: Some(RoundTrace {
+                low_cm_360: r.range.0,
+                high_cm_360: r.range.1,
+                pick_low_cm_360: r.pick.0,
+                pick_high_cm_360: r.pick.1,
+                guess: r.guess,
+                next: r.next,
+            }),
+        })
+        .collect();
+    RunDiagnostics {
+        rounds,
+        estimates: vec![
+            est("Flicking", 35.0, 0.17),
+            est("Micro-adjustment", 32.1, 0.25),
+            est("Tracking", 34.6, 0.19),
+            est("Flick far", 33.0, 0.25),
+        ],
+        fit_cm_360: Some(34.2),
+        result_rel_uncertainty: Some(0.11),
+        ..Default::default()
+    }
+}
+
+/// A real run with no answer: the player wants it slower than the search allows, so nearly every
+/// pair says "too fast" at every sensitivity tested and the dots climb toward 80 cm.
+fn no_answer_result(at: chrono::DateTime<Utc>) -> CalibrationResult {
+    use aim_trainer::sensitivity::combiner::Signal;
+    use aim_trainer::sensitivity::paired::PairResult;
+    let mut run = CalibrationRun::new(7);
+    let mut n = 0usize;
+    while !run.is_completed() {
+        let seg = run.segment().unwrap();
+        if seg.counted {
+            for _ in 0..6 {
+                n += 1;
+                // One pair in seven leans the other way.
+                let signal = if n % 7 == 0 { Signal::TooSlow } else { Signal::TooFast };
+                if matches!(seg.kind, TestKind::Micro | TestKind::Tracking) {
+                    let (faster_cost, slower_cost) = if signal == Signal::TooFast { (2.0, 1.0) } else { (1.0, 2.0) };
+                    run.record_pair(seg.kind, PairResult { faster_cost, slower_cost, signal, band: None });
+                } else {
+                    let band = (seg.kind == TestKind::Flick).then_some(FlickBand::ALL[n % 3]);
+                    run.record(seg.kind, band, signal);
+                }
+            }
+        }
+        run.finish_segment();
+    }
+    let result = run.build_result(vec![], None, at);
+    assert!(result.no_answer, "the no-answer scene needs a run without an answer");
+    result
 }
 
 fn profile(calibrated: bool) -> PlayerProfile {
@@ -54,17 +179,9 @@ fn profile(calibrated: bool) -> PlayerProfile {
             confidence: 0.82,
             psa_cm: Some(34.8),
             stat_cm: Some(33.3),
-            rounds: [47.5, 31.25, 39.4, 35.3, 33.3, 34.3, 34.8]
+            rounds: sample_rounds()
                 .iter()
-                .enumerate()
-                .map(|(i, &cm)| CalibrationRound {
-                    tested_cm_360: cm,
-                    conclusion: if i % 2 == 0 {
-                        PsaRoundConclusion::TooFastNeedSlower
-                    } else {
-                        PsaRoundConclusion::TooSlowNeedFaster
-                    },
-                })
+                .map(|r| CalibrationRound { tested_cm_360: r.cm, conclusion: r.conclusion })
                 .collect(),
             samples: (0..70)
                 .map(|i| {
@@ -73,7 +190,7 @@ fn profile(calibrated: bool) -> PlayerProfile {
                 })
                 .collect(),
             at: Utc::now() - Duration::hours(3),
-            diagnostics: None,
+            diagnostics: Some(sample_diagnostics()),
             pooled_runs: 1,
             no_answer: false,
             runs_disagree: false,
@@ -210,6 +327,7 @@ fn base(name: &'static str, size: (u32, u32), screen: Screen, calibrated: bool) 
         task_name: "Flick Shot",
         offscreen: Vec::new(),
         tracking: None,
+        display_mode: DisplayMode::Window,
     }
 }
 
@@ -226,6 +344,25 @@ fn scenes() -> Vec<Scene> {
         base("history", L, Screen::History, true),
         base("settings", L, Screen::Settings, true),
     ];
+
+    // Fullscreen picked, and the whole screen at the small size down to the profiles.
+    let mut fullscreen = base("settings-fullscreen", L, Screen::Settings, true);
+    fullscreen.display_mode = DisplayMode::Fullscreen;
+    v.push(fullscreen);
+    v.push(base("settings-small-full", (1024, 1500), Screen::Settings, true));
+    // A changed crosshair: thicker yellow lines, a centre dot and an outline.
+    let mut crosshair = base("settings-crosshair", (1280, 1500), Screen::Settings, true);
+    crosshair.profile.crosshair = CrosshairStyle {
+        color: [255, 230, 0],
+        opacity: 1.0,
+        length: 6,
+        thickness: 2,
+        gap: 4,
+        dot: true,
+        dot_size: 2,
+        outline: true,
+    };
+    v.push(crosshair);
 
     let mut detail = base("history-detail", L, Screen::History, true);
     detail.state.open_session = Some("s0".into());
@@ -336,6 +473,31 @@ fn scenes() -> Vec<Scene> {
         c.confidence = 0.3;
     }
     v.push(none);
+
+    // The calibration replay under "How we got here", on a page tall enough to show it unscrolled.
+    const TALL: (u32, u32) = (1280, 1600);
+    let replay_scene = |name, size, step: usize, edit: fn(&mut CalibrationResult)| {
+        let mut s = base(name, size, Screen::Sensitivity, true);
+        if let Some(c) = s.profile.last_calibration.as_mut() {
+            edit(c);
+        }
+        s.state.replay.go_to(step, sample_rounds().len() + 1);
+        s
+    };
+    let result_step = sample_rounds().len();
+    v.push(replay_scene("sensitivity-replay-round", TALL, 2, |_| {}));
+    v.push(replay_scene("sensitivity-replay-clamped", TALL, 1, |_| {}));
+    v.push(replay_scene("sensitivity-replay-result", TALL, result_step, |_| {}));
+    v.push(replay_scene("sensitivity-replay-pooled", TALL, result_step, |c| c.pooled_runs = 3));
+    v.push(replay_scene("sensitivity-replay-no-answer", TALL, result_step, |c| {
+        *c = no_answer_result(c.at)
+    }));
+    v.push(replay_scene("sensitivity-replay-legacy", TALL, 2, |c| {
+        for r in c.diagnostics.iter_mut().flat_map(|d| d.rounds.iter_mut()) {
+            r.trace = None;
+        }
+    }));
+    v.push(replay_scene("sensitivity-replay-small", (1024, 1600), 2, |_| {}));
 
     let mut empty = base("sensitivity-empty", L, Screen::Sensitivity, false);
     empty.state.convert_value = "0.35".into();
@@ -522,6 +684,7 @@ fn render(gpu: &Gpu, mut scene: Scene, out_dir: &Path) {
         audio_enabled: true,
         volume: 0.6,
         music_volume: 0.5,
+        display_mode: scene.display_mode,
         fps: 240,
         offscreen_targets: &scene.offscreen,
         tracking: scene.tracking,

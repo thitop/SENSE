@@ -1,4 +1,5 @@
 pub mod calibration;
+pub mod crosshair;
 pub mod history;
 pub mod metrics;
 pub mod profile;
@@ -9,10 +10,12 @@ use std::fs;
 use std::path::PathBuf;
 
 pub use calibration::{CalibrationResult, CalibrationRound, EstimateRecord, PairRecord, RoundSignals, RunDiagnostics};
+pub use crate::sensitivity::blocks::{NextPick, RoundGuess, RoundTrace};
+pub use crosshair::CrosshairStyle;
 pub use history::{SessionHistory, SessionRecord};
 pub use metrics::{AggregatedTaskMetrics, MetricPoint, TrackingStats};
 pub use profile::{PlayerProfile, ProfileManager};
-pub use settings::AppSettings;
+pub use settings::{AppSettings, DisplayMode, WindowPlacement};
 
 pub struct DataManager {
     base_dir: PathBuf,

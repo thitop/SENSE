@@ -170,7 +170,7 @@ fn rounds(cms: &[f64], fall_per_round: f64) -> Vec<RoundSignals> {
                     });
                 }
             }
-            RoundSignals { tested_cm_360: cm, signals: Default::default(), pairs }
+            RoundSignals { tested_cm_360: cm, signals: Default::default(), pairs, trace: None }
         })
         .collect()
 }

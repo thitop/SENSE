@@ -7,6 +7,8 @@ pub mod habits;
 pub mod hud;
 pub mod logos;
 pub mod question_art;
+pub mod replay;
+pub mod replay_view;
 pub mod screens;
 pub mod theme;
 pub mod widgets;
@@ -15,7 +17,7 @@ use egui::{vec2, Align, Align2, CornerRadius, CursorIcon, Frame, Layout, Margin,
 use egui_phosphor::regular as icon;
 
 use crate::data::setup::PlayerSetup;
-use crate::data::{PlayerProfile, SessionHistory};
+use crate::data::{CrosshairStyle, DisplayMode, PlayerProfile, SessionHistory};
 use screens::questions::QuestionsDraft;
 use crate::game::calibration::{CalibrationProgress, PlaySession};
 use crate::game::tasks::{TaskMetrics, TaskState, TaskType};
@@ -53,6 +55,8 @@ pub enum UiAction {
     SaveDpi(f64),
     SetMainGame(String),
     SetAudio { enabled: bool, volume: f32, music_volume: f32 },
+    SetDisplayMode(DisplayMode),
+    SetCrosshair(CrosshairStyle),
     CreateProfile(String),
     SelectProfile(String),
     DeleteProfile(String),
@@ -73,6 +77,7 @@ pub struct UiModel<'a> {
     pub audio_enabled: bool,
     pub volume: f32,
     pub music_volume: f32,
+    pub display_mode: DisplayMode,
     pub fps: u32,
     /// Screen-space directions (x right, y up) to live targets outside the view.
     pub offscreen_targets: &'a [glam::Vec2],
@@ -121,9 +126,12 @@ pub struct UiState {
     pub dpi_saved_at: Option<f64>,
     pub new_profile_name: String,
     pub pending_delete: Option<String>,
+    /// Crosshair changes while a slider or the colour picker is held; saved on release.
+    pub crosshair_draft: Option<CrosshairStyle>,
     // Sensitivity screen
     pub copied_at: Option<f64>,
     pub show_all_games: bool,
+    pub replay: replay::ReplayState,
     pub convert_game_id: Option<String>,
     pub convert_value: String,
     // History
@@ -144,8 +152,10 @@ impl UiState {
             dpi_saved_at: None,
             new_profile_name: String::new(),
             pending_delete: None,
+            crosshair_draft: None,
             copied_at: None,
             show_all_games: false,
+            replay: replay::ReplayState::default(),
             convert_game_id: None,
             convert_value: String::new(),
             open_session: None,
@@ -168,6 +178,11 @@ pub fn render_ui(ctx: &egui::Context, state: &mut UiState, model: &UiModel) -> V
 
     if !model.profile.onboarded && state.onboarding.is_none() {
         state.onboarding = Some(OnboardingDraft::from_profile(model.profile));
+    }
+
+    // The replay plays by itself only if My sensitivity is on screen right after the run.
+    if !state.menu_open || state.onboarding.is_some() || state.screen != Screen::Sensitivity {
+        state.replay.disarm();
     }
 
     if !state.menu_open {

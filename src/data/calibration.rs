@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use std::collections::BTreeMap;
 
-use crate::sensitivity::blocks::SignalCounts;
+use crate::sensitivity::blocks::{RoundTrace, SignalCounts};
 use crate::sensitivity::combiner::Signal;
 use crate::sensitivity::psa::PsaRoundConclusion;
 
@@ -88,6 +88,7 @@ impl CalibrationResult {
                 .collect();
             d.conflicts = p.conflicts.iter().map(|(a, b)| (a.label().to_string(), b.label().to_string())).collect();
             d.left_out = p.left_out.iter().map(|k| k.label().to_string()).collect();
+            d.result_rel_uncertainty = Some(p.rel_uncertainty);
         }
     }
 }
@@ -104,6 +105,9 @@ pub struct RunDiagnostics {
     /// Tests left out of the result: they leaned one way at every tested sensitivity.
     #[serde(default)]
     pub left_out: Vec<String>,
+    /// Half-width of the ~95% interval of the result, as a fraction of it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_rel_uncertainty: Option<f64>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -114,6 +118,9 @@ pub struct RoundSignals {
     /// Micro and tracking pairs played this round, in order.
     #[serde(default)]
     pub pairs: Vec<PairRecord>,
+    /// The range this round started from, the best guess after it and how the next pick was made.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace: Option<RoundTrace>,
 }
 
 /// One pair of a paired test: its cost at the faster and the slower side (lower is better).

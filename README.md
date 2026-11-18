@@ -60,7 +60,10 @@ Press **Esc** to pause. The interrupted test starts again from the beginning whe
 
 - Your sensitivity in cm/360° and a confidence level (High, Medium or Low).
 - The value for your main game with a copy button, and the values for every other game.
-- Each test's own estimate, and graphs of how the search narrowed down.
+- Each test's own estimate.
+
+**How we got here** replays the run round by round: what each test said, where SENSE's best guess was,
+and why it tried the next sensitivity. It plays once after a run; the link under your number replays it.
 
 **What to practise** lists up to three aim habits that are still there at your best sensitivity, so
 changing sensitivity won't fix them. The button on each card starts the matching practice scenario. The
@@ -118,6 +121,7 @@ screen says so. Fortnite, Rainbow Six Siege and WARDOGS have no verified scope v
 | 1 to 6 | Start a practice scenario (practice only) |
 | R | Retry the current practice scenario |
 | C | Open My sensitivity (practice only) |
+| F11 or Alt+Enter | Switch between window and fullscreen (also in Settings > Display) |
 
 ### Where your data is kept
 
@@ -126,10 +130,10 @@ address bar):
 
 | Folder or file | Contents |
 |---|---|
-| `profiles\` | Each profile: DPI, main game, sensitivity, latest result |
+| `profiles\` | Each profile: DPI, main game, sensitivity, latest result, crosshair |
 | `history\` | Every session you played, per profile |
 | `calibrations\` | Every calibration run, with what each test said per round |
-| `settings.json` | Sound settings (effects on or off, effects volume, music volume) |
+| `settings.json` | Sound settings (effects on or off, effects volume, music volume), window or fullscreen, and where the window was |
 
 Close SENSE before editing or deleting any of these files.
 
