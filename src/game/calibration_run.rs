@@ -307,7 +307,7 @@ impl CalibrationRun {
                         signal: p.signal,
                     })
                     .collect();
-                RoundSignals { tested_cm_360: b.tested_cm_360, signals, pairs }
+                RoundSignals { tested_cm_360: b.tested_cm_360, signals, pairs, trace: Some(b.trace) }
             })
             .collect();
         let record = |test: String, c: crate::sensitivity::psa::Crossover| EstimateRecord {
@@ -324,8 +324,9 @@ impl CalibrationRun {
             .recommendation(None)
             .map(|r| r.conflicts.iter().map(|(a, b)| (a.label().to_string(), b.label().to_string())).collect())
             .unwrap_or_default();
+        let result_rel_uncertainty = s.recommendation(None).map(|r| r.neutral.rel_uncertainty);
         let left_out = s.excluded_tests().iter().map(|k| k.label().to_string()).collect();
-        RunDiagnostics { rounds, estimates, conflicts, fit_cm_360: s.fit_cm_360, left_out }
+        RunDiagnostics { rounds, estimates, conflicts, fit_cm_360: s.fit_cm_360, left_out, result_rel_uncertainty }
     }
 }
 

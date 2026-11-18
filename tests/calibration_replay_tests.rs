@@ -1,6 +1,10 @@
 //! The block scheduler records, for every round, the range it started from, its best guess
 //! afterwards and how the next sensitivity was picked.
 
+use aim_trainer::data::{CalibrationResult, RunDiagnostics};
+use aim_trainer::game::calibration_run::CalibrationRun;
+use aim_trainer::sensitivity::paired::PairResult;
+use aim_trainer::sensitivity::pooling::Pooled;
 use aim_trainer::sensitivity::blocks::{BlockScheduler, NextPick, RoundGuess};
 use aim_trainer::sensitivity::combiner::{Signal, TestKind};
 use rand::{rngs::StdRng, Rng, SeedableRng};
@@ -163,4 +167,68 @@ fn last_round_says_last() {
 fn no_crossover_after_two_one_sided_rounds() {
     let s = run_all(Signal::TooFast, 2);
     assert_eq!(s.history[1].trace.guess, RoundGuess::NoCrossover);
+}
+
+#[test]
+fn diagnostics_carry_each_rounds_trace() {
+    let mut run = CalibrationRun::new(5);
+    while !run.is_completed() {
+        let seg = run.segment().unwrap();
+        if seg.counted {
+            let signal = if run.scheduler().current_cm_360 < 35.0 { Signal::TooFast } else { Signal::TooSlow };
+            let band = (seg.kind == TestKind::Flick).then_some(aim_trainer::game::tasks::flick::FlickBand::Mid);
+            for _ in 0..4 {
+                run.record(seg.kind, band, signal);
+            }
+            if matches!(seg.kind, TestKind::Micro | TestKind::Tracking) {
+                let (faster_cost, slower_cost) = if signal == Signal::TooFast { (2.0, 1.0) } else { (1.0, 2.0) };
+                run.record_pair(seg.kind, PairResult { faster_cost, slower_cost, signal, band: None });
+            }
+        }
+        run.finish_segment();
+    }
+    let d = run.diagnostics();
+    assert_eq!(d.rounds.len(), 7);
+    for (i, r) in d.rounds.iter().enumerate() {
+        assert_eq!(r.trace, Some(run.scheduler().history[i].trace), "round {i}");
+    }
+    let expected = run.scheduler().recommendation(None).map(|r| r.neutral.rel_uncertainty);
+    assert!(expected.is_some(), "the fit should produce an answer");
+    assert_eq!(d.result_rel_uncertainty, expected);
+}
+
+#[test]
+fn old_diagnostics_json_loads() {
+    let json = r#"{"rounds":[{"tested_cm_360":40.0,"signals":{}}],"estimates":[],"conflicts":[],"fit_cm_360":null}"#;
+    let d: RunDiagnostics = serde_json::from_str(json).unwrap();
+    assert_eq!(d.rounds[0].trace, None);
+    assert_eq!(d.result_rel_uncertainty, None);
+}
+
+#[test]
+fn pooling_sets_the_pooled_uncertainty() {
+    let mut r = CalibrationResult {
+        cm_360: 40.0,
+        confidence: 0.8,
+        psa_cm: Some(40.0),
+        stat_cm: None,
+        rounds: vec![],
+        samples: vec![],
+        at: chrono::Utc::now(),
+        diagnostics: Some(RunDiagnostics::default()),
+        pooled_runs: 1,
+        no_answer: false,
+        runs_disagree: false,
+        habits: None,
+    };
+    r.apply_pool(&Pooled {
+        cm_360: 38.0,
+        rel_uncertainty: 0.07,
+        confidence: 0.9,
+        estimates: vec![],
+        conflicts: vec![],
+        left_out: vec![],
+        runs: 2,
+    });
+    assert_eq!(r.diagnostics.unwrap().result_rel_uncertainty, Some(0.07));
 }
