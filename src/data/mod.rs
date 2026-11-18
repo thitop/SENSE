@@ -3,6 +3,7 @@ pub mod history;
 pub mod metrics;
 pub mod profile;
 pub mod settings;
+pub mod setup;
 
 use std::fs;
 use std::path::PathBuf;
