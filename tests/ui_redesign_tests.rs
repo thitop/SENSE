@@ -977,6 +977,31 @@ fn settings_display_switch_picks_the_other_mode() {
     assert_eq!(actions, [UiAction::SetDisplayMode(DisplayMode::Window)]);
 }
 
+#[test]
+fn reset_crosshair_goes_back_to_the_original_look() {
+    use aim_trainer::data::CrosshairStyle;
+    use aim_trainer::ui::UiAction;
+    let mut profile = onboarded_profile();
+    profile.crosshair = CrosshairStyle { color: [255, 255, 255], dot: true, outline: true, ..Default::default() };
+    let fx = Fixture::new(profile);
+    let mut state = UiState::new();
+    state.screen = Screen::Settings;
+    let actions = click_labelled(&mut state, &fx.model(), "Reset to default");
+    assert_eq!(actions, [UiAction::SetCrosshair(CrosshairStyle::default())]);
+}
+
+#[test]
+fn ticking_outline_saves_it_to_the_profile() {
+    use aim_trainer::data::CrosshairStyle;
+    use aim_trainer::ui::UiAction;
+    let fx = Fixture::new(onboarded_profile());
+    let mut state = UiState::new();
+    state.screen = Screen::Settings;
+    let actions = click_labelled(&mut state, &fx.model(), "Outline");
+    assert_eq!(actions, [UiAction::SetCrosshair(CrosshairStyle { outline: true, ..Default::default() })]);
+    assert_eq!(state.crosshair_draft, None);
+}
+
 /// Render the UI, find the drawn text containing `label`, click its centre, and return the
 /// actions of the frame the click lands in.
 fn click_labelled(state: &mut UiState, model: &UiModel, label: &str) -> Vec<aim_trainer::ui::UiAction> {

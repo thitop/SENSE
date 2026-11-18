@@ -22,6 +22,9 @@ pub struct PlayerProfile {
     /// Recent calibration runs, pooled into `last_calibration` (see `sensitivity::pooling`).
     #[serde(default)]
     pub recent_runs: Vec<crate::sensitivity::pooling::RunRecord>,
+    /// Profiles saved before crosshair settings existed get the crosshair SENSE always had.
+    #[serde(default)]
+    pub crosshair: super::crosshair::CrosshairStyle,
 }
 
 fn default_onboarded() -> bool {
@@ -64,6 +67,7 @@ impl PlayerProfile {
             onboarded: false,
             last_calibration: None,
             recent_runs: Vec::new(),
+            crosshair: Default::default(),
         }
     }
 }

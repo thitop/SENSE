@@ -552,6 +552,7 @@ impl GameState {
                 self.save_settings();
             }
             UiAction::SetDisplayMode(mode) => self.set_display_mode(mode),
+            UiAction::SetCrosshair(style) => self.update_profile(|p| p.crosshair = style),
             UiAction::CreateProfile(name) => {
                 let game = self
                     .data_manager
@@ -858,6 +859,9 @@ impl GameState {
             pixels_per_point: full_output.pixels_per_point,
         };
 
+        // The active profile's crosshair, also after a profile switch.
+        let crosshair = self.data_manager.profile_manager.get_active_profile().map(|p| p.crosshair).unwrap_or_default();
+        self.renderer.set_crosshair(crosshair);
         let result = self
             .renderer
             .render(&targets, self.task_manager.on_target_now(), &clipped_primitives, &screen_descriptor);
