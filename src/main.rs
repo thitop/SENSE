@@ -453,10 +453,9 @@ impl GameState {
             // than as a pool of the runs before it.
             let latest_in = picked.iter().any(|r| r.at == result.at);
             if latest_in && picked.len() > 1 {
-                // Only the newest runs that agree are pooled: fitting runs that found very
-                // different values together gives a result wider than any of them.
-                let agreeing = pooling::newest_agreeing(&picked);
-                match (agreeing.len() > 1).then(|| pooling::pool(&agreeing)).flatten() {
+                // Only the newest runs that agree are pooled, and only when the pool is an
+                // answer; otherwise the newest run shows alone.
+                match pooling::pooled_answer(&picked) {
                     Some(pooled) => result.apply_pool(&pooled),
                     None => result.runs_disagree = true,
                 }

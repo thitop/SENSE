@@ -4,7 +4,7 @@ use aim_trainer::data::CalibrationResult;
 use aim_trainer::sensitivity::combiner::{recommend, TestKind};
 use aim_trainer::sensitivity::joint_fit::fit_joint;
 use aim_trainer::sensitivity::pooling::{
-    is_answer, keep_recent, newest_agreeing, pool, runs_agree, runs_to_pool, RunRecord, MAX_ANSWER_UNCERTAINTY, MAX_POOLED, SEARCH_CM,
+    is_answer, keep_recent, newest_agreeing, pool, pooled_answer, runs_agree, runs_to_pool, RunRecord, MAX_ANSWER_UNCERTAINTY, MAX_POOLED, SEARCH_CM,
     POOL_DAYS,
 };
 use chrono::{Duration, TimeZone, Utc};
@@ -211,4 +211,34 @@ fn pool_of_capped_runs_is_capped() {
     let p = pool(&[&a, &b]).unwrap();
     assert_eq!(p.cm_360, 30.0);
     assert!(p.confidence <= 0.3, "{}", p.confidence);
+}
+
+#[test]
+fn a_pool_that_is_no_answer_is_not_used() {
+    // Real play: 34.7 cm ±19% pooled with 23.1 ±56% and 16.6 ±49% passed the agreement test,
+    // but only tracking crossed over in the pool: 7.8 cm ±193%, clamped to the 15 cm edge
+    // and shown as the answer under a graph whose every round said ~35 cm.
+    let runs: Vec<RunRecord> = serde_json::from_str(include_str!("fixtures/pool_without_an_answer.json")).unwrap();
+    let latest = runs.iter().map(|r| r.at).max().unwrap();
+    let picked = runs_to_pool(&runs, latest, 400.0);
+    assert!(picked.iter().any(|r| r.at == latest), "the newest run has an answer of its own");
+    let agreeing = newest_agreeing(&picked);
+    assert!(agreeing.len() > 1);
+    let pooled = pool(&agreeing).unwrap();
+    assert!(!is_answer(pooled.rel_uncertainty), "the pool itself is wider than the search");
+    assert_eq!(pooled_answer(&picked), None);
+}
+
+#[test]
+fn a_pool_that_is_an_answer_is_used() {
+    let (a, b) = (run(0, 800.0, 46.0, &CMS), run(1, 800.0, 54.0, &CMS));
+    let picked = vec![&a, &b];
+    assert_eq!(pooled_answer(&picked), pool(&newest_agreeing(&picked)));
+    assert!(pooled_answer(&picked).is_some());
+}
+
+#[test]
+fn one_run_is_not_a_pool() {
+    let a = run(0, 800.0, 50.0, &CMS);
+    assert_eq!(pooled_answer(&[&a]), None);
 }
