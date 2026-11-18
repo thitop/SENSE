@@ -245,7 +245,7 @@ fn controls(ui: &mut Ui, state: &mut ReplayState, steps: usize, now: f64) {
     ui.horizontal(|ui| {
         // The UI fonts have no ❚❚; the icon font draws both states.
         let (glyph, label) = if state.playing { (icon::PAUSE, "Pause") } else { (icon::PLAY, "Play") };
-        if widgets::primary_button(ui, Some(glyph), label).clicked() {
+        if widgets::secondary_button(ui, Some(glyph), label).clicked() {
             if state.playing {
                 state.pause();
             } else {

@@ -55,8 +55,10 @@ struct SampleRound {
     next: NextPick,
 }
 
-/// A 7-round run that settles on 34.2 cm. Round 2's guess is too uncertain and outside the
-/// reach, so round 3 goes as far as it can.
+/// A 7-round run that settles on 34.2 cm, as `BlockScheduler` played it with these counts
+/// (taken from a real scheduler run). Round 2 leans "too slow" by chance, so the fit runs off
+/// below the search range and round 3 goes as far as it can (15 cm); later rounds bring the
+/// guess back up past the range, as the fit's reach allows.
 fn sample_rounds() -> Vec<SampleRound> {
     use NextPick::*;
     use PsaRoundConclusion::*;
@@ -72,18 +74,18 @@ fn sample_rounds() -> Vec<SampleRound> {
     vec![
         r(47.5, (15.0, 80.0), TooSlowNeedFaster, [(1, 6, 2), (1, 4, 1), (4, 9, 3)],
             RoundGuess::OneSensitivity, Midpoint { cm_360: 31.25 }),
-        r(31.25, (15.0, 47.5), TooFastNeedSlower, [(5, 2, 2), (3, 1, 2), (8, 5, 3)],
-            guess(60.0, 0.9), FitClamped { guess_cm: 60.0, cm_360: 57.0 }),
-        r(57.0, (31.25, 47.5), TooSlowNeedFaster, [(0, 8, 1), (1, 5, 0), (3, 11, 2)],
-            guess(36.0, 0.18), FitEstimate { cm_360: 36.0 }),
-        r(36.0, (31.25, 47.5), TooSlowNeedFaster, [(2, 4, 3), (2, 3, 1), (6, 7, 3)],
-            guess(34.6, 0.11), FitEstimate { cm_360: 34.6 }),
-        r(34.6, (31.25, 37.1), BalancedNarrow, [(3, 3, 3), (2, 2, 2), (6, 6, 4)],
-            guess(34.0, 0.08), FitEstimate { cm_360: 34.0 }),
-        r(34.0, (31.25, 37.1), TooFastNeedSlower, [(4, 2, 3), (3, 1, 2), (8, 5, 3)],
-            guess(34.3, 0.07), FitEstimate { cm_360: 34.3 }),
-        r(34.3, (33.0, 37.1), BalancedNarrow, [(3, 3, 3), (2, 2, 2), (6, 7, 3)],
-            guess(34.2, 0.06), Last),
+        r(31.25, (15.0, 47.5), TooSlowNeedFaster, [(2, 5, 2), (1, 4, 1), (5, 8, 3)],
+            guess(14.17, 3.27), FitClamped { guess_cm: 14.17, cm_360: 15.0 }),
+        r(15.0, (15.0, 31.25), TooFastNeedSlower, [(8, 0, 1), (5, 1, 0), (11, 3, 2)],
+            guess(27.1, 0.20), FitEstimate { cm_360: 27.1 }),
+        r(27.1, (15.0, 31.25), TooFastNeedSlower, [(8, 1, 0), (5, 1, 0), (12, 2, 2)],
+            guess(32.4, 0.15), FitEstimate { cm_360: 32.4 }),
+        r(32.4, (26.29, 31.25), TooFastNeedSlower, [(6, 2, 1), (3, 2, 1), (8, 6, 2)],
+            guess(34.07, 0.14), FitEstimate { cm_360: 34.07 }),
+        r(34.07, (31.25, 31.25), BalancedNarrow, [(3, 3, 3), (2, 2, 2), (6, 6, 4)],
+            guess(34.09, 0.12), FitEstimate { cm_360: 34.09 }),
+        r(34.09, (31.25, 31.25), TooFastNeedSlower, [(3, 3, 3), (2, 2, 2), (8, 7, 1)],
+            guess(34.24, 0.11), Last),
     ]
 }
 
@@ -116,13 +118,13 @@ fn sample_diagnostics() -> RunDiagnostics {
     RunDiagnostics {
         rounds,
         estimates: vec![
-            est("Flicking", 34.0, 0.07),
-            est("Micro-adjustment", 34.9, 0.11),
-            est("Tracking", 33.6, 0.15),
+            est("Flicking", 35.0, 0.17),
+            est("Micro-adjustment", 32.1, 0.25),
+            est("Tracking", 34.6, 0.19),
             est("Flick far", 33.0, 0.25),
         ],
         fit_cm_360: Some(34.2),
-        result_rel_uncertainty: Some(0.06),
+        result_rel_uncertainty: Some(0.11),
         ..Default::default()
     }
 }
@@ -383,6 +385,7 @@ fn scenes() -> Vec<Scene> {
     };
     let result_step = sample_rounds().len();
     v.push(replay_scene("sensitivity-replay-round", TALL, 2, |_| {}));
+    v.push(replay_scene("sensitivity-replay-clamped", TALL, 1, |_| {}));
     v.push(replay_scene("sensitivity-replay-result", TALL, result_step, |_| {}));
     v.push(replay_scene("sensitivity-replay-pooled", TALL, result_step, |c| c.pooled_runs = 3));
     v.push(replay_scene("sensitivity-replay-no-answer", TALL, result_step, |c| {

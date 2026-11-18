@@ -411,6 +411,20 @@ mod replay_view {
     }
 
     #[test]
+    fn result_lines_give_each_test_in_cm() {
+        let mut c = cal(vec![round(None)], vec![C::BalancedNarrow]);
+        c.diagnostics.as_mut().unwrap().estimates = vec![
+            EstimateRecord { test: "Flicking".into(), cm_360: 34.04, rel_uncertainty: 0.072 },
+            EstimateRecord { test: "Micro-adjustment".into(), cm_360: 30.0, rel_uncertainty: 1.5 },
+            EstimateRecord { test: "Flick far".into(), cm_360: 33.0, rel_uncertainty: 0.2 },
+        ];
+        let lines = replay(&c).unwrap().result.lines;
+        assert!(lines.contains(&("Flicking: 34.0 cm ± 7%".to_string(), Tone::Normal)));
+        assert!(lines.contains(&("Micro-adjustment: no trend".to_string(), Tone::Normal)));
+        assert!(!lines.iter().any(|(l, _)| l.starts_with("Flick far")));
+    }
+
+    #[test]
     fn no_answer_result_has_no_number() {
         let mut c = cal(vec![round(None)], vec![C::BalancedNarrow]);
         c.no_answer = true;

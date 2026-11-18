@@ -3,7 +3,7 @@
 
 use chrono::{DateTime, Utc};
 
-use crate::data::{CalibrationResult, NextPick, RoundGuess, RoundSignals, RoundTrace};
+use crate::data::{CalibrationResult, EstimateRecord, NextPick, RoundGuess, RoundSignals, RoundTrace};
 use crate::sensitivity::blocks::SignalCounts;
 use crate::sensitivity::pooling::MAX_ANSWER_UNCERTAINTY;
 use crate::sensitivity::psa::PsaRoundConclusion;
@@ -192,6 +192,14 @@ fn next_line(t: &RoundTrace, conclusion: PsaRoundConclusion, too_early: bool) ->
     }
 }
 
+/// `Flicking: 34.0 cm ± 7%`, or `no trend` where `estimate_text` would say so.
+fn test_estimate_line(e: &EstimateRecord) -> String {
+    match estimate_text(e, false).as_str() {
+        "no trend" => format!("{}: no trend", e.test),
+        _ => format!("{}: {:.1} cm ± {:.0}%", e.test, e.cm_360, e.rel_uncertainty * 100.0),
+    }
+}
+
 fn result_view(cal: &CalibrationResult) -> ResultView {
     let d = cal.diagnostics.as_ref();
     let mut lines: Vec<(String, Tone)> = Vec::new();
@@ -208,7 +216,7 @@ fn result_view(cal: &CalibrationResult) -> ResultView {
             if d.left_out.contains(&e.test) {
                 lines.push((format!("{}: Left out: leaned one way at every sensitivity", e.test), Tone::Warn));
             } else if !cal.no_answer {
-                lines.push((format!("{}: {}", e.test, estimate_text(e, false)), Tone::Normal));
+                lines.push((test_estimate_line(e), Tone::Normal));
             }
         }
     }
