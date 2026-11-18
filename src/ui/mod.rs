@@ -7,6 +7,7 @@ pub mod habits;
 pub mod hud;
 pub mod logos;
 pub mod replay;
+pub mod replay_view;
 pub mod screens;
 pub mod theme;
 pub mod widgets;
@@ -159,6 +160,11 @@ pub fn render_ui(ctx: &egui::Context, state: &mut UiState, model: &UiModel) -> V
 
     if !model.profile.onboarded && state.onboarding.is_none() {
         state.onboarding = Some(OnboardingDraft::from_profile(model.profile));
+    }
+
+    // The replay plays by itself only if My sensitivity is on screen right after the run.
+    if !state.menu_open || state.onboarding.is_some() || state.screen != Screen::Sensitivity {
+        state.replay.disarm();
     }
 
     if !state.menu_open {

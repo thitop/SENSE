@@ -494,6 +494,29 @@ mod replay_playback {
     }
 
     #[test]
+    fn link_click_uses_up_the_autoplay() {
+        let mut s = ReplayState::default();
+        s.arm_autoplay();
+        s.link_clicked(2.0, 8);
+        s.next(8);
+        assert!(!s.autoplay_armed);
+        s.on_visible(3.0, 8);
+        assert!(!s.playing);
+        assert_eq!(s.step, 1);
+    }
+
+    #[test]
+    fn leaving_the_page_unseen_disarms_autoplay() {
+        let mut s = ReplayState::default();
+        s.arm_autoplay();
+        s.disarm();
+        assert!(!s.autoplay_armed);
+        s.on_visible(5.0, 8);
+        assert!(!s.playing);
+        assert_eq!(s.step, 0);
+    }
+
+    #[test]
     fn new_result_resets_state() {
         let a = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
         let b = Utc.with_ymd_and_hms(2026, 1, 2, 0, 0, 0).unwrap();

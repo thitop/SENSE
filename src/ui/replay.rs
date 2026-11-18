@@ -324,7 +324,14 @@ impl ReplayState {
         }
     }
 
+    /// Call on every frame the page isn't drawn: an autoplay the player never scrolled to is
+    /// dropped, so opening the page later starts paused.
+    pub fn disarm(&mut self) {
+        self.autoplay_armed = false;
+    }
+
     pub fn link_clicked(&mut self, now: f64, steps: usize) {
+        self.autoplay_armed = false;
         self.scroll_pending = true;
         self.step = 0;
         self.play(now, steps);

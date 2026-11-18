@@ -28,6 +28,8 @@ pub const SUCCESS: Color32 = Color32::from_rgb(0x9B, 0xD6, 0x7A);
 pub const WARN_BG: Color32 = Color32::from_rgb(0x2E, 0x26, 0x12);
 pub const WARN: Color32 = Color32::from_rgb(0xE8, 0xB7, 0x5A);
 pub const DANGER: Color32 = Color32::from_rgb(0xE5, 0x48, 0x4D);
+/// "Too slow" in the calibration replay; `DANGER` is "too fast".
+pub const SLOW: Color32 = Color32::from_rgb(0x5A, 0xA9, 0xE8);
 /// `BG` at ~85 % alpha, for panels floating over the 3D scene.
 pub const HUD_BG: Color32 = Color32::from_rgba_premultiplied(9, 10, 12, 217);
 

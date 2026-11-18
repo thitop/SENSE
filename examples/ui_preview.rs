@@ -7,9 +7,11 @@ use std::fs;
 use std::path::Path;
 
 use aim_trainer::data::{
-    AggregatedTaskMetrics, CalibrationResult, CalibrationRound, MetricPoint, PlayerProfile,
-    SessionHistory, SessionRecord, TrackingStats,
+    AggregatedTaskMetrics, CalibrationResult, CalibrationRound, EstimateRecord, MetricPoint, NextPick,
+    PlayerProfile, RoundGuess, RoundSignals, RoundTrace, RunDiagnostics, SessionHistory, SessionRecord,
+    TrackingStats,
 };
+use aim_trainer::sensitivity::blocks::SignalCounts;
 use aim_trainer::game::calibration::{CalibrationProgress, PlayMode, PlaySession};
 use aim_trainer::game::calibration_run::CalibrationRun;
 use aim_trainer::sensitivity::combiner::TestKind;
@@ -41,6 +43,90 @@ struct Scene {
     tracking: Option<TrackingStats>,
 }
 
+/// One round of the sample run: tested cm, range before it, what it concluded, the counts
+/// (too fast, too slow, tie) for Flicking / Micro-adjustment / Tracking, the guess after it and
+/// the next pick.
+struct SampleRound {
+    cm: f64,
+    range: (f64, f64),
+    conclusion: PsaRoundConclusion,
+    counts: [(usize, usize, usize); 3],
+    guess: RoundGuess,
+    next: NextPick,
+}
+
+/// A 7-round run that settles on 34.2 cm. Round 2's guess is too uncertain and outside the
+/// reach, so round 3 goes as far as it can.
+fn sample_rounds() -> Vec<SampleRound> {
+    use NextPick::*;
+    use PsaRoundConclusion::*;
+    let guess = |cm_360, rel_uncertainty| RoundGuess::Guess { cm_360, rel_uncertainty };
+    let r = |cm, range, conclusion, counts, guess, next| SampleRound {
+        cm,
+        range,
+        conclusion,
+        counts,
+        guess,
+        next,
+    };
+    vec![
+        r(47.5, (15.0, 80.0), TooSlowNeedFaster, [(1, 6, 2), (1, 4, 1), (4, 9, 3)],
+            RoundGuess::OneSensitivity, Midpoint { cm_360: 31.25 }),
+        r(31.25, (15.0, 47.5), TooFastNeedSlower, [(5, 2, 2), (3, 1, 2), (8, 5, 3)],
+            guess(60.0, 0.9), FitClamped { guess_cm: 60.0, cm_360: 57.0 }),
+        r(57.0, (31.25, 47.5), TooSlowNeedFaster, [(0, 8, 1), (1, 5, 0), (3, 11, 2)],
+            guess(36.0, 0.18), FitEstimate { cm_360: 36.0 }),
+        r(36.0, (31.25, 47.5), TooSlowNeedFaster, [(2, 4, 3), (2, 3, 1), (6, 7, 3)],
+            guess(34.6, 0.11), FitEstimate { cm_360: 34.6 }),
+        r(34.6, (31.25, 37.1), BalancedNarrow, [(3, 3, 3), (2, 2, 2), (6, 6, 4)],
+            guess(34.0, 0.08), FitEstimate { cm_360: 34.0 }),
+        r(34.0, (31.25, 37.1), TooFastNeedSlower, [(4, 2, 3), (3, 1, 2), (8, 5, 3)],
+            guess(34.3, 0.07), FitEstimate { cm_360: 34.3 }),
+        r(34.3, (33.0, 37.1), BalancedNarrow, [(3, 3, 3), (2, 2, 2), (6, 7, 3)],
+            guess(34.2, 0.06), Last),
+    ]
+}
+
+fn sample_diagnostics() -> RunDiagnostics {
+    let est = |test: &str, cm_360: f64, rel_uncertainty: f64| EstimateRecord {
+        test: test.into(),
+        cm_360,
+        rel_uncertainty,
+    };
+    let rounds = sample_rounds()
+        .into_iter()
+        .map(|r| RoundSignals {
+            tested_cm_360: r.cm,
+            signals: ["Flicking", "Micro-adjustment", "Tracking"]
+                .iter()
+                .zip(r.counts)
+                .map(|(test, (too_fast, too_slow, direct))| {
+                    (test.to_string(), SignalCounts { too_fast, too_slow, direct })
+                })
+                .collect(),
+            pairs: vec![],
+            trace: Some(RoundTrace {
+                low_cm_360: r.range.0,
+                high_cm_360: r.range.1,
+                guess: r.guess,
+                next: r.next,
+            }),
+        })
+        .collect();
+    RunDiagnostics {
+        rounds,
+        estimates: vec![
+            est("Flicking", 34.0, 0.07),
+            est("Micro-adjustment", 34.9, 0.11),
+            est("Tracking", 33.6, 0.15),
+            est("Flick far", 33.0, 0.25),
+        ],
+        fit_cm_360: Some(34.2),
+        result_rel_uncertainty: Some(0.06),
+        ..Default::default()
+    }
+}
+
 fn profile(calibrated: bool) -> PlayerProfile {
     let mut p = PlayerProfile::new("default".into(), "Player".into(), 800.0, "valorant".into());
     p.onboarded = true;
@@ -51,17 +137,9 @@ fn profile(calibrated: bool) -> PlayerProfile {
             confidence: 0.82,
             psa_cm: Some(34.8),
             stat_cm: Some(33.3),
-            rounds: [47.5, 31.25, 39.4, 35.3, 33.3, 34.3, 34.8]
+            rounds: sample_rounds()
                 .iter()
-                .enumerate()
-                .map(|(i, &cm)| CalibrationRound {
-                    tested_cm_360: cm,
-                    conclusion: if i % 2 == 0 {
-                        PsaRoundConclusion::TooFastNeedSlower
-                    } else {
-                        PsaRoundConclusion::TooSlowNeedFaster
-                    },
-                })
+                .map(|r| CalibrationRound { tested_cm_360: r.cm, conclusion: r.conclusion })
                 .collect(),
             samples: (0..70)
                 .map(|i| {
@@ -70,7 +148,7 @@ fn profile(calibrated: bool) -> PlayerProfile {
                 })
                 .collect(),
             at: Utc::now() - Duration::hours(3),
-            diagnostics: None,
+            diagnostics: Some(sample_diagnostics()),
             pooled_runs: 1,
             no_answer: false,
             runs_disagree: false,
@@ -292,6 +370,31 @@ fn scenes() -> Vec<Scene> {
         c.confidence = 0.3;
     }
     v.push(none);
+
+    // The calibration replay under "How we got here", scrolled into view.
+    const TALL: (u32, u32) = (1280, 1600);
+    let replay_scene = |name, size, step: usize, edit: fn(&mut CalibrationResult)| {
+        let mut s = base(name, size, Screen::Sensitivity, true);
+        if let Some(c) = s.profile.last_calibration.as_mut() {
+            edit(c);
+        }
+        s.state.replay.go_to(step, sample_rounds().len() + 1);
+        s
+    };
+    let result_step = sample_rounds().len();
+    v.push(replay_scene("sensitivity-replay-round", TALL, 2, |_| {}));
+    v.push(replay_scene("sensitivity-replay-result", TALL, result_step, |_| {}));
+    v.push(replay_scene("sensitivity-replay-pooled", TALL, result_step, |c| c.pooled_runs = 3));
+    v.push(replay_scene("sensitivity-replay-no-answer", TALL, result_step, |c| {
+        c.no_answer = true;
+        c.confidence = 0.3;
+    }));
+    v.push(replay_scene("sensitivity-replay-legacy", TALL, 2, |c| {
+        for r in c.diagnostics.iter_mut().flat_map(|d| d.rounds.iter_mut()) {
+            r.trace = None;
+        }
+    }));
+    v.push(replay_scene("sensitivity-replay-small", (1024, 1600), 2, |_| {}));
 
     let mut empty = base("sensitivity-empty", L, Screen::Sensitivity, false);
     empty.state.convert_value = "0.35".into();
