@@ -3,7 +3,9 @@
 
 use chrono::{DateTime, Utc};
 
-use crate::data::{CalibrationResult, EstimateRecord, NextPick, RoundGuess, RoundSignals, RoundTrace};
+use crate::data::{
+    CalibrationResult, EstimateRecord, NextPick, RoundGuess, RoundSignals, RoundTrace,
+};
 use crate::sensitivity::blocks::SignalCounts;
 use crate::sensitivity::pooling::MAX_ANSWER_UNCERTAINTY;
 use crate::sensitivity::psa::PsaRoundConclusion;
@@ -36,7 +38,8 @@ pub struct RoundView {
     pub header: String,
     pub tested_cm_360: f64,
     pub conclusion: PsaRoundConclusion,
-    /// The range the round started from; `None` for runs saved without a trace.
+    /// The range this round's sensitivity was picked within: the starting range for round 1,
+    /// else the previous round's pick range. `None` for runs saved without it.
     pub range: Option<(f64, f64)>,
     /// (cm, relative uncertainty) of the guess after the round, when it is worth plotting.
     pub guess_point: Option<(f64, f64)>,
@@ -82,31 +85,42 @@ pub fn replay(cal: &CalibrationResult) -> Option<Replay> {
         .map(|(i, r)| {
             let rows = rows(r);
             let conclusion = cal.rounds.get(i).map(|c| c.conclusion).unwrap_or_else(|| {
-                let (fast, slow) = rows
-                    .iter()
-                    .fold((0, 0), |(f, s), row| (f + row.counts.too_fast, s + row.counts.too_slow));
+                let (fast, slow) = rows.iter().fold((0, 0), |(f, s), row| {
+                    (f + row.counts.too_fast, s + row.counts.too_slow)
+                });
                 conclude(fast, slow)
             });
             let guess_line = r.trace.map(|t| guess_line(t.guess));
-            let next_line = match r.trace {
-                Some(t) => next_line(&t, conclusion, guess_line.as_deref() == Some(TOO_EARLY)),
-                None if i + 1 == n => LAST_ROUND.into(),
-                None => match conclusion {
-                    PsaRoundConclusion::TooFastNeedSlower => "Overall too fast → next round went slower",
-                    PsaRoundConclusion::TooSlowNeedFaster => "Overall too slow → next round went faster",
-                    PsaRoundConclusion::BalancedNarrow => "About even → next round narrowed in",
+            let next_line = match (r.trace, d.rounds.get(i + 1)) {
+                (Some(t), _) => next_line(&t, conclusion, guess_line.as_deref() == Some(TOO_EARLY)),
+                (None, None) => LAST_ROUND.into(),
+                (None, Some(next)) => {
+                    let summary = match conclusion {
+                        PsaRoundConclusion::TooFastNeedSlower => "Overall too fast",
+                        PsaRoundConclusion::TooSlowNeedFaster => "Overall too slow",
+                        PsaRoundConclusion::BalancedNarrow => "About even",
+                    };
+                    format!("{summary} · next round tested {:.1} cm", next.tested_cm_360)
                 }
-                .into(),
+            };
+            let range = match i.checked_sub(1) {
+                None => r.trace.map(|t| (t.low_cm_360, t.high_cm_360)),
+                Some(prev) => d.rounds[prev]
+                    .trace
+                    .map(|t| (t.pick_low_cm_360, t.pick_high_cm_360))
+                    // Traces saved before the pick range was kept have 0 there.
+                    .filter(|&(lo, hi)| lo > 0.0 && hi > 0.0),
             };
             RoundView {
                 header: format!("Round {} of {}", i + 1, n),
                 tested_cm_360: r.tested_cm_360,
                 conclusion,
-                range: r.trace.map(|t| (t.low_cm_360, t.high_cm_360)),
+                range,
                 guess_point: match r.trace.map(|t| t.guess) {
-                    Some(RoundGuess::Guess { cm_360, rel_uncertainty }) if trusted(rel_uncertainty) => {
-                        Some((cm_360, rel_uncertainty))
-                    }
+                    Some(RoundGuess::Guess {
+                        cm_360,
+                        rel_uncertainty,
+                    }) if trusted(rel_uncertainty) => Some((cm_360, rel_uncertainty)),
                     _ => None,
                 },
                 rows,
@@ -115,7 +129,10 @@ pub fn replay(cal: &CalibrationResult) -> Option<Replay> {
             }
         })
         .collect();
-    Some(Replay { rounds, result: result_view(cal) })
+    Some(Replay {
+        rounds,
+        result: result_view(cal),
+    })
 }
 
 fn conclude(fast: usize, slow: usize) -> PsaRoundConclusion {
@@ -158,11 +175,20 @@ fn rows(r: &RoundSignals) -> Vec<TestRow> {
 
 fn guess_line(g: RoundGuess) -> String {
     match g {
-        RoundGuess::Guess { cm_360, rel_uncertainty } if trusted(rel_uncertainty) => {
-            format!("So far SENSE thinks {:.1} cm ± {:.0}%", cm_360, rel_uncertainty * 100.0)
+        RoundGuess::Guess {
+            cm_360,
+            rel_uncertainty,
+        } if trusted(rel_uncertainty) => {
+            format!(
+                "So far SENSE thinks {:.1} cm ± {:.0}%",
+                cm_360,
+                rel_uncertainty * 100.0
+            )
         }
         RoundGuess::Guess { .. } => TOO_EARLY.into(),
-        RoundGuess::OneSensitivity => "One sensitivity tested so far: SENSE needs two to start guessing".into(),
+        RoundGuess::OneSensitivity => {
+            "One sensitivity tested so far: SENSE needs two to start guessing".into()
+        }
         RoundGuess::NoCrossover => "Not enough to guess yet: every test leaned the same way".into(),
     }
 }
@@ -182,9 +208,12 @@ fn next_line(t: &RoundTrace, conclusion: PsaRoundConclusion, too_early: bool) ->
             let what = if too_early { "a rough first guess" } else { "the best guess so far" };
             format!("Next round tests {cm_360:.1} cm: {what}.")
         }
-        NextPick::FitClamped { guess_cm, cm_360 } => format!(
-            "The best guess ({guess_cm:.1} cm) is outside what's been tested, so the next round goes as far as it can: {cm_360:.1} cm."
-        ),
+        NextPick::FitClamped { guess_cm, cm_360 } => {
+            let what = if too_early { "A rough first guess" } else { "The best guess" };
+            format!(
+                "{what} ({guess_cm:.1} cm) is further than one round may move, so the next round goes as far as it can: {cm_360:.1} cm."
+            )
+        }
         NextPick::FitFallbackMidpoint { cm_360 } => {
             format!("Next round tests the middle of the range ({cm_360:.1} cm).")
         }
@@ -196,25 +225,34 @@ fn next_line(t: &RoundTrace, conclusion: PsaRoundConclusion, too_early: bool) ->
 fn test_estimate_line(e: &EstimateRecord) -> String {
     match estimate_text(e, false).as_str() {
         "no trend" => format!("{}: no trend", e.test),
-        _ => format!("{}: {:.1} cm ± {:.0}%", e.test, e.cm_360, e.rel_uncertainty * 100.0),
+        _ => format!(
+            "{}: {:.1} cm ± {:.0}%",
+            e.test,
+            e.cm_360,
+            e.rel_uncertainty * 100.0
+        ),
     }
 }
 
 fn result_view(cal: &CalibrationResult) -> ResultView {
     let d = cal.diagnostics.as_ref();
     let mut lines: Vec<(String, Tone)> = Vec::new();
-    lines.push(if cal.no_answer {
-        ("No result: every test leaned the same way at every sensitivity tested".into(), Tone::Muted)
+    let intro = if !cal.no_answer {
+        "Where your tests flip from \"too fast\" to \"too slow\". Each test on its own:"
+    } else if d.is_some_and(|d| d.result_rel_uncertainty.is_some()) {
+        // A fit exists but is too uncertain to be an answer.
+        "No result: the tests flipped, but too unevenly to give a number"
     } else {
-        (
-            "Every test flips from \"too fast\" to \"too slow\" here. Each test on its own:".into(),
-            Tone::Muted,
-        )
-    });
+        "No result: every test leaned the same way at every sensitivity tested"
+    };
+    lines.push((intro.into(), Tone::Muted));
     if let Some(d) = d {
         for e in d.estimates.iter().filter(|e| !e.test.starts_with("Flick ")) {
             if d.left_out.contains(&e.test) {
-                lines.push((format!("{}: Left out: leaned one way at every sensitivity", e.test), Tone::Warn));
+                lines.push((
+                    format!("{}: Left out: leaned one way at every sensitivity", e.test),
+                    Tone::Warn,
+                ));
             } else if !cal.no_answer {
                 lines.push((test_estimate_line(e), Tone::Normal));
             }
@@ -224,15 +262,30 @@ fn result_view(cal: &CalibrationResult) -> ResultView {
         if cal.pooled_runs > 1 {
             let earlier = cal.pooled_runs - 1;
             let noun = if earlier == 1 { "run" } else { "runs" };
-            lines.push((format!("Combined with {earlier} earlier {noun} → {:.1} cm", cal.cm_360), Tone::Normal));
+            lines.push((
+                format!(
+                    "Combined with {earlier} earlier {noun} → {:.1} cm",
+                    cal.cm_360
+                ),
+                Tone::Normal,
+            ));
         } else if let Some(d) = d.filter(|d| !d.left_out.is_empty()) {
-            let last_guess = d.rounds.last().and_then(|r| r.trace).and_then(|t| match t.guess {
-                RoundGuess::Guess { cm_360, .. } => Some(cm_360),
-                _ => None,
-            });
+            let last_guess = d
+                .rounds
+                .last()
+                .and_then(|r| r.trace)
+                .and_then(|t| match t.guess {
+                    RoundGuess::Guess { cm_360, .. } => Some(cm_360),
+                    _ => None,
+                });
             if let Some(g) = last_guess.filter(|g| (g - cal.cm_360).abs() >= 0.05) {
                 lines.push((
-                    format!("Leaving out {} moved it from {:.1} to {:.1} cm.", d.left_out.join(" and "), g, cal.cm_360),
+                    format!(
+                        "Leaving out {} moved it from {:.1} to {:.1} cm.",
+                        d.left_out.join(" and "),
+                        g,
+                        cal.cm_360
+                    ),
                     Tone::Normal,
                 ));
             }
@@ -333,9 +386,11 @@ impl ReplayState {
     }
 
     /// Call on every frame the page isn't drawn: an autoplay the player never scrolled to is
-    /// dropped, so opening the page later starts paused.
+    /// dropped and playback rewinds, so opening the page later starts paused on Round 1.
     pub fn disarm(&mut self) {
         self.autoplay_armed = false;
+        self.playing = false;
+        self.step = 0;
     }
 
     pub fn link_clicked(&mut self, now: f64, steps: usize) {

@@ -283,13 +283,10 @@ fn result(
 
     ui.add_space(S8);
     let heading = section(ui, "How we got here");
-    if let (Some(story), Some(steps)) = (&story, steps) {
+    if let Some(story) = &story {
         if state.replay.scroll_pending {
             heading.scroll_to_me(Some(Align::Min));
             state.replay.scroll_pending = false;
-        }
-        if ui.is_rect_visible(heading.rect) {
-            state.replay.on_visible(now, steps);
         }
         ui.label(RichText::new(replay::INTRO).font(body(13.0)).color(TEXT_SECONDARY));
         ui.add_space(S3);

@@ -142,6 +142,12 @@ pub enum NextPick {
 pub struct RoundTrace {
     pub low_cm_360: f64,
     pub high_cm_360: f64,
+    /// The range the next sensitivity was allowed to be picked within: the fit's reach when the
+    /// fit picked it, else the bounds after this round. 0 in traces saved before it was kept.
+    #[serde(default)]
+    pub pick_low_cm_360: f64,
+    #[serde(default)]
+    pub pick_high_cm_360: f64,
     pub guess: RoundGuess,
     pub next: NextPick,
 }
@@ -395,6 +401,8 @@ impl BlockScheduler {
             trace: RoundTrace {
                 low_cm_360: range_low,
                 high_cm_360: range_high,
+                pick_low_cm_360: 0.0,
+                pick_high_cm_360: 0.0,
                 guess: RoundGuess::OneSensitivity,
                 next: NextPick::Last,
             },
@@ -407,30 +415,33 @@ impl BlockScheduler {
         // Every block runs: the session has a fixed length, and stopping when the bounds meet
         // would let one noisy block end the search.
         let midpoint = (self.low_cm_360 + self.high_cm_360) * 0.5;
-        let next = if self.block_number > self.max_blocks {
+        let bounds = (self.low_cm_360, self.high_cm_360);
+        let (next, pick_range) = if self.block_number > self.max_blocks {
             self.is_completed = true;
             self.fit_cm_360 = self.fit_estimate();
             let estimate = self.recommendation(None).map(|r| r.neutral.cm_360).unwrap_or(midpoint);
             self.recommended_cm_360 = Some(estimate.clamp(self.search_min_cm, self.search_max_cm));
-            NextPick::Last
+            (NextPick::Last, bounds)
         } else if self.history.len() >= Self::BISECTION_BLOCKS {
             let lo = (self.low_cm_360 * (1.0 - Self::FIT_REACH)).max(self.search_min_cm);
             let hi = (self.high_cm_360 * (1.0 + Self::FIT_REACH)).min(self.search_max_cm);
             let fit = self.fit_estimate();
             self.current_cm_360 = fit.unwrap_or(midpoint).clamp(lo, hi);
             let cm_360 = self.current_cm_360;
-            match fit {
+            let next = match fit {
                 Some(g) if (lo..=hi).contains(&g) => NextPick::FitEstimate { cm_360 },
                 Some(g) => NextPick::FitClamped { guess_cm: g, cm_360 },
                 None => NextPick::FitFallbackMidpoint { cm_360 },
-            }
+            };
+            (next, (lo, hi))
         } else {
             self.current_cm_360 = midpoint;
-            NextPick::Midpoint { cm_360: midpoint }
+            (NextPick::Midpoint { cm_360: midpoint }, bounds)
         };
         if let Some(last) = self.history.last_mut() {
             last.trace.guess = guess;
             last.trace.next = next;
+            (last.trace.pick_low_cm_360, last.trace.pick_high_cm_360) = pick_range;
         }
         conclusion
     }

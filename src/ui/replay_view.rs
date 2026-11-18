@@ -4,11 +4,14 @@
 use std::time::Duration;
 
 use egui::{
-    vec2, Align, Color32, CornerRadius, CursorIcon, Frame, Layout, Margin, Response, RichText, Sense, Stroke,
-    StrokeKind, Ui, WidgetInfo, WidgetType,
+    vec2, Align, Color32, CornerRadius, CursorIcon, Frame, Layout, Margin, Response, RichText,
+    Sense, Stroke, StrokeKind, Ui, WidgetInfo, WidgetType,
 };
 use egui_phosphor::regular as icon;
-use egui_plot::{GridMark, HLine, Line, LineStyle, Plot, PlotBounds, PlotPoint, PlotPoints, Points, Polygon, Text};
+use egui_plot::{
+    GridMark, HLine, Line, LineStyle, Plot, PlotBounds, PlotPoint, PlotPoints, Points, Polygon,
+    Text,
+};
 
 use super::replay::{Replay, ReplayState, ResultView, RoundView, TestRow, Tone, STEP_SECS};
 use super::theme::*;
@@ -40,16 +43,25 @@ pub fn show(ui: &mut Ui, state: &mut ReplayState, replay: &Replay) {
         state.tick(now, steps);
         if state.playing {
             let left = (STEP_SECS - (now - state.last_step_at)).max(0.0);
-            ui.ctx().request_repaint_after(Duration::from_secs_f64(left));
+            ui.ctx()
+                .request_repaint_after(Duration::from_secs_f64(left));
         }
     }
 
-    widgets::card(ui, |ui| {
+    let graph_card = widgets::card(ui, |ui| {
         ui.set_min_width(ui.available_width());
         graph(ui, replay, state.step);
         ui.add_space(S1);
         legend(ui);
     });
+    // An armed autoplay starts once the graph itself is on screen.
+    if ui.is_rect_visible(graph_card.response.rect) {
+        let before = (state.step, state.playing);
+        state.on_visible(now, steps);
+        if (state.step, state.playing) != before {
+            ui.ctx().request_repaint();
+        }
+    }
     ui.add_space(S3);
     controls(ui, state, steps, now);
     ui.add_space(S3);
@@ -119,21 +131,51 @@ fn graph(ui: &mut Ui, replay: &Replay, step: usize) {
             .show_grid(false)
             .show_x(false)
             .show_y(false)
-            .x_grid_spacer(move |_| (1..=n).map(|i| GridMark { value: i as f64, step_size: 1.0 }).collect())
-            .y_grid_spacer(|_| Y_TICKS.iter().map(|v| GridMark { value: v.ln(), step_size: 1.0 }).collect())
+            .x_grid_spacer(move |_| {
+                (1..=n)
+                    .map(|i| GridMark {
+                        value: i as f64,
+                        step_size: 1.0,
+                    })
+                    .collect()
+            })
+            .y_grid_spacer(|_| {
+                Y_TICKS
+                    .iter()
+                    .map(|v| GridMark {
+                        value: v.ln(),
+                        step_size: 1.0,
+                    })
+                    .collect()
+            })
             .x_axis_formatter(|m, _| format!("R{}", m.value.round() as i64))
             .y_axis_formatter(|m, _| format!("{:.0}", m.value.exp()))
+            .y_axis_label("cm/360°")
             .show(ui, |p| {
-                p.set_plot_bounds(PlotBounds::from_min_max([0.5, lo.ln()], [n as f64 + 0.5, hi.ln()]));
+                p.set_plot_bounds(PlotBounds::from_min_max(
+                    [0.5, lo.ln()],
+                    [n as f64 + 0.5, hi.ln()],
+                ));
                 for v in Y_TICKS {
-                    p.hline(HLine::new(v.ln()).color(BORDER).width(1.0_f32).allow_hover(false));
+                    p.hline(
+                        HLine::new(v.ln())
+                            .color(BORDER)
+                            .width(1.0_f32)
+                            .allow_hover(false),
+                    );
                 }
 
-                // Search range before each round.
+                // The range each round's sensitivity was picked within.
                 for (i, r) in shown.iter().enumerate() {
                     if let Some((l, h)) = r.range {
                         let range = ACCENT.gamma_multiply(0.07);
-                        p.polygon(band(x(i) - BAND_HALF, x(i) + BAND_HALF, (l, h), (l, h), range));
+                        p.polygon(band(
+                            x(i) - BAND_HALF,
+                            x(i) + BAND_HALF,
+                            (l, h),
+                            (l, h),
+                            range,
+                        ));
                     }
                 }
 
@@ -144,18 +186,26 @@ fn graph(ui: &mut Ui, replay: &Replay, step: usize) {
                     .filter_map(|(i, r)| r.guess_point.map(|(cm, rel)| (x(i), cm, rel)))
                     .collect();
                 let spread = SUCCESS.gamma_multiply(0.16);
-                let plus_minus = |cm: f64, rel: f64| (cm * (1.0 - rel), cm * (1.0 + rel));
+                // Symmetric on the log axis.
+                let plus_minus = |cm: f64, rel: f64| (cm / (1.0 + rel), cm * (1.0 + rel));
                 if let [(gx, cm, rel)] = guesses[..] {
                     // A lone guess has no segment to span; give its ± some width.
                     let pm = plus_minus(cm, rel);
-                    p.polygon(band(gx - LONE_GUESS_HALF, gx + LONE_GUESS_HALF, pm, pm, spread));
+                    p.polygon(band(
+                        gx - LONE_GUESS_HALF,
+                        gx + LONE_GUESS_HALF,
+                        pm,
+                        pm,
+                        spread,
+                    ));
                 }
                 // One quad per segment: the polygon fill only handles convex shapes.
                 for w in guesses.windows(2) {
                     let ((x0, c0, r0), (x1, c1, r1)) = (w[0], w[1]);
                     p.polygon(band(x0, x1, plus_minus(c0, r0), plus_minus(c1, r1), spread));
                 }
-                let guess_line: Vec<[f64; 2]> = guesses.iter().map(|&(gx, cm, _)| [gx, cm.ln()]).collect();
+                let guess_line: Vec<[f64; 2]> =
+                    guesses.iter().map(|&(gx, cm, _)| [gx, cm.ln()]).collect();
                 p.line(
                     Line::new(PlotPoints::from(guess_line.clone()))
                         .color(SUCCESS)
@@ -168,8 +218,11 @@ fn graph(ui: &mut Ui, replay: &Replay, step: usize) {
                 }
 
                 // What each round tested.
-                let tested: Vec<[f64; 2]> =
-                    shown.iter().enumerate().map(|(i, r)| [x(i), r.tested_cm_360.ln()]).collect();
+                let tested: Vec<[f64; 2]> = shown
+                    .iter()
+                    .enumerate()
+                    .map(|(i, r)| [x(i), r.tested_cm_360.ln()])
+                    .collect();
                 p.line(
                     Line::new(PlotPoints::from(tested.clone()))
                         .color(ACCENT.gamma_multiply(0.5))
@@ -187,12 +240,19 @@ fn graph(ui: &mut Ui, replay: &Replay, step: usize) {
                 }
 
                 if let Some(cm) = replay.result.cm_360.filter(|_| at_result) {
-                    p.hline(HLine::new(cm.ln()).color(ACCENT).width(1.5_f32).allow_hover(false));
+                    p.hline(
+                        HLine::new(cm.ln())
+                            .color(ACCENT)
+                            .width(1.5_f32)
+                            .allow_hover(false),
+                    );
                     p.text(
                         Text::new(
                             PlotPoint::new(n as f64 + 0.45, cm.ln() + 0.02),
                             // The colour must be on the text: the scope's override would win.
-                            RichText::new(format!("{cm:.1} cm")).font(medium(12.0)).color(ACCENT),
+                            RichText::new(format!("{cm:.1} cm"))
+                                .font(medium(12.0))
+                                .color(ACCENT),
                         )
                         .anchor(egui::Align2::RIGHT_BOTTOM)
                         .allow_hover(false),
@@ -204,7 +264,12 @@ fn graph(ui: &mut Ui, replay: &Replay, step: usize) {
 
 /// A filled quad from `x0` to `x1`, between (low, high) cm/360 at each end.
 fn band(x0: f64, x1: f64, at0: (f64, f64), at1: (f64, f64), color: Color32) -> Polygon<'static> {
-    let quad = vec![[x0, at0.0.ln()], [x1, at1.0.ln()], [x1, at1.1.ln()], [x0, at0.1.ln()]];
+    let quad = vec![
+        [x0, at0.0.ln()],
+        [x1, at1.0.ln()],
+        [x1, at1.1.ln()],
+        [x0, at0.1.ln()],
+    ];
     Polygon::new(PlotPoints::from(quad))
         .fill_color(color)
         .stroke(Stroke::NONE)
@@ -227,24 +292,32 @@ fn legend(ui: &mut Ui) {
         (SUCCESS.gamma_multiply(0.5), "Best guess"),
     ];
     let width = ui.available_width();
-    ui.allocate_ui_with_layout(vec2(width, 16.0), Layout::left_to_right(Align::Center), |ui| {
-        ui.spacing_mut().item_spacing.x = 5.0;
-        for (i, (color, label)) in items.into_iter().enumerate() {
-            if i > 0 {
-                ui.add_space(S3);
+    ui.allocate_ui_with_layout(
+        vec2(width, 16.0),
+        Layout::left_to_right(Align::Center),
+        |ui| {
+            ui.spacing_mut().item_spacing.x = 5.0;
+            for (i, (color, label)) in items.into_iter().enumerate() {
+                if i > 0 {
+                    ui.add_space(S3);
+                }
+                let (rect, _) = ui.allocate_exact_size(vec2(10.0, 10.0), Sense::hover());
+                ui.painter().rect_filled(rect, CornerRadius::same(2), color);
+                ui.label(RichText::new(label).font(body(12.0)).color(TEXT_MUTED));
             }
-            let (rect, _) = ui.allocate_exact_size(vec2(10.0, 10.0), Sense::hover());
-            ui.painter().rect_filled(rect, CornerRadius::same(2), color);
-            ui.label(RichText::new(label).font(body(12.0)).color(TEXT_MUTED));
-        }
-    });
+        },
+    );
 }
 
 fn controls(ui: &mut Ui, state: &mut ReplayState, steps: usize, now: f64) {
     let before = (state.step, state.playing);
     ui.horizontal(|ui| {
         // The UI fonts have no ❚❚; the icon font draws both states.
-        let (glyph, label) = if state.playing { (icon::PAUSE, "Pause") } else { (icon::PLAY, "Play") };
+        let (glyph, label) = if state.playing {
+            (icon::PAUSE, "Pause")
+        } else {
+            (icon::PLAY, "Play")
+        };
         if widgets::secondary_button(ui, Some(glyph), label).clicked() {
             if state.playing {
                 state.pause();
@@ -261,7 +334,11 @@ fn controls(ui: &mut Ui, state: &mut ReplayState, steps: usize, now: f64) {
         ui.add_space(S2);
         ui.spacing_mut().item_spacing.x = S1;
         for i in 0..steps {
-            let label = if i + 1 == steps { "Result".to_string() } else { (i + 1).to_string() };
+            let label = if i + 1 == steps {
+                "Result".to_string()
+            } else {
+                (i + 1).to_string()
+            };
             if step_pill(ui, &label, i < state.step, i == state.step).clicked() {
                 state.go_to(i, steps);
             }
@@ -282,9 +359,19 @@ fn step_pill(ui: &mut Ui, label: &str, done: bool, current: bool) -> Response {
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     resp.widget_info(|| WidgetInfo::selected(WidgetType::Button, ui.is_enabled(), current, label));
     if ui.is_rect_visible(rect) {
-        let t = ui.ctx().animate_bool_with_time(resp.id, resp.hovered(), 0.12);
-        let fill = if done { SURFACE_RAISED } else { SURFACE_RAISED.gamma_multiply(t * 0.6) };
-        let stroke = if current { ACCENT } else { BORDER_STRONG.lerp_to_gamma(TEXT_FAINT, t) };
+        let t = ui
+            .ctx()
+            .animate_bool_with_time(resp.id, resp.hovered(), 0.12);
+        let fill = if done {
+            SURFACE_RAISED
+        } else {
+            SURFACE_RAISED.gamma_multiply(t * 0.6)
+        };
+        let stroke = if current {
+            ACCENT
+        } else {
+            BORDER_STRONG.lerp_to_gamma(TEXT_FAINT, t)
+        };
         let text = if current {
             ACCENT
         } else if done {
@@ -299,7 +386,8 @@ fn step_pill(ui: &mut Ui, label: &str, done: bool, current: bool) -> Response {
             Stroke::new(1.0_f32, stroke),
             StrokeKind::Inside,
         );
-        ui.painter().galley(rect.center() - galley.size() / 2.0, galley, text);
+        ui.painter()
+            .galley(rect.center() - galley.size() / 2.0, galley, text);
     }
     resp.on_hover_cursor(CursorIcon::PointingHand)
 }
@@ -307,21 +395,29 @@ fn step_pill(ui: &mut Ui, label: &str, done: bool, current: bool) -> Response {
 /// Title on the left, an optional accent value on the right.
 fn card_header(ui: &mut Ui, title: &str, value: Option<String>) {
     let width = ui.available_width();
-    ui.allocate_ui_with_layout(vec2(width, 22.0), Layout::left_to_right(Align::Center), |ui| {
-        ui.set_width(width);
-        ui.label(RichText::new(title).font(medium(15.0)).color(TEXT));
-        if let Some(value) = value {
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.label(RichText::new(value).font(display_bold(16.0)).color(ACCENT));
-            });
-        }
-    });
+    ui.allocate_ui_with_layout(
+        vec2(width, 22.0),
+        Layout::left_to_right(Align::Center),
+        |ui| {
+            ui.set_width(width);
+            ui.label(RichText::new(title).font(medium(15.0)).color(TEXT));
+            if let Some(value) = value {
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.label(RichText::new(value).font(display_bold(16.0)).color(ACCENT));
+                });
+            }
+        },
+    );
     ui.add_space(S1);
 }
 
 /// One round: header, a row per test, then the footer. Part B's clips go between rows and footer.
 fn round_card(ui: &mut Ui, r: &RoundView) {
-    card_header(ui, &r.header, Some(format!("{:.1} cm/360°", r.tested_cm_360)));
+    card_header(
+        ui,
+        &r.header,
+        Some(format!("{:.1} cm/360°", r.tested_cm_360)),
+    );
     round_rows(ui, &r.rows);
     ui.add_space(S2);
     round_footer(ui, r);
@@ -329,28 +425,46 @@ fn round_card(ui: &mut Ui, r: &RoundView) {
 
 fn round_rows(ui: &mut Ui, rows: &[TestRow]) {
     ui.scope(|ui| {
-    ui.spacing_mut().item_spacing.y = 0.0;
-    let width = ui.available_width();
-    let bar_width = (width - NAME_WIDTH - VERDICT_WIDTH - 2.0 * S3).max(40.0);
-    for (i, row) in rows.iter().enumerate() {
-        if i > 0 {
-            let (left, y) = (ui.cursor().left(), ui.cursor().top());
-            ui.painter().hline(left..=left + width, y, Stroke::new(1.0_f32, BORDER));
-        }
-        ui.allocate_ui_with_layout(vec2(width, ROW_HEIGHT), Layout::left_to_right(Align::Center), |ui| {
-            ui.set_width(width);
-            ui.spacing_mut().item_spacing.x = S3;
-            ui.allocate_ui_with_layout(vec2(NAME_WIDTH, ROW_HEIGHT), Layout::left_to_right(Align::Center), |ui| {
-                ui.set_width(NAME_WIDTH);
-                ui.add(egui::Label::new(RichText::new(&row.test).font(body(13.0)).color(TEXT)).truncate());
-            });
-            split_bar(ui, row.counts, bar_width);
-            ui.add(
-                egui::Label::new(RichText::new(row.verdict).font(body(12.5)).color(verdict_color(row.counts)))
-                    .truncate(),
+        ui.spacing_mut().item_spacing.y = 0.0;
+        let width = ui.available_width();
+        let bar_width = (width - NAME_WIDTH - VERDICT_WIDTH - 2.0 * S3).max(40.0);
+        for (i, row) in rows.iter().enumerate() {
+            if i > 0 {
+                let (left, y) = (ui.cursor().left(), ui.cursor().top());
+                ui.painter()
+                    .hline(left..=left + width, y, Stroke::new(1.0_f32, BORDER));
+            }
+            ui.allocate_ui_with_layout(
+                vec2(width, ROW_HEIGHT),
+                Layout::left_to_right(Align::Center),
+                |ui| {
+                    ui.set_width(width);
+                    ui.spacing_mut().item_spacing.x = S3;
+                    ui.allocate_ui_with_layout(
+                        vec2(NAME_WIDTH, ROW_HEIGHT),
+                        Layout::left_to_right(Align::Center),
+                        |ui| {
+                            ui.set_width(NAME_WIDTH);
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(&row.test).font(body(13.0)).color(TEXT),
+                                )
+                                .truncate(),
+                            );
+                        },
+                    );
+                    split_bar(ui, row.counts, bar_width);
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(row.verdict)
+                                .font(body(12.5))
+                                .color(verdict_color(row.counts)),
+                        )
+                        .truncate(),
+                    );
+                },
             );
-        });
-    }
+        }
     });
 }
 
@@ -367,14 +481,21 @@ fn split_bar(ui: &mut Ui, c: SignalCounts, width: f32) {
     if total == 0 {
         return;
     }
-    let parts: Vec<(usize, Color32)> = [(c.too_fast, DANGER), (c.direct, BORDER_STRONG), (c.too_slow, SLOW)]
-        .into_iter()
-        .filter(|(n, _)| *n > 0)
-        .collect();
+    let parts: Vec<(usize, Color32)> = [
+        (c.too_fast, DANGER),
+        (c.direct, BORDER_STRONG),
+        (c.too_slow, SLOW),
+    ]
+    .into_iter()
+    .filter(|(n, _)| *n > 0)
+    .collect();
     let mut left = rect.left();
     for (k, (count, color)) in parts.iter().enumerate() {
         let w = rect.width() * *count as f32 / total as f32;
-        let seg = egui::Rect::from_min_max(egui::pos2(left, rect.top()), egui::pos2(left + w, rect.bottom()));
+        let seg = egui::Rect::from_min_max(
+            egui::pos2(left, rect.top()),
+            egui::pos2(left + w, rect.bottom()),
+        );
         let (first, last) = (k == 0, k + 1 == parts.len());
         let corners = CornerRadius {
             nw: if first { r } else { 0 },
@@ -396,9 +517,17 @@ fn round_footer(ui: &mut Ui, r: &RoundView) {
             ui.set_min_width(ui.available_width());
             ui.spacing_mut().item_spacing.y = 2.0;
             if let Some(line) = &r.guess_line {
-                ui.label(RichText::new(widgets::arrows(line)).font(body(13.0)).color(TEXT));
+                ui.label(
+                    RichText::new(widgets::arrows(line))
+                        .font(body(13.0))
+                        .color(TEXT),
+                );
             }
-            ui.label(RichText::new(widgets::arrows(&r.next_line)).font(body(13.0)).color(TEXT_SECONDARY));
+            ui.label(
+                RichText::new(widgets::arrows(&r.next_line))
+                    .font(body(13.0))
+                    .color(TEXT_SECONDARY),
+            );
         });
 }
 
@@ -406,7 +535,11 @@ fn result_card(ui: &mut Ui, r: &ResultView) {
     card_header(ui, "Result", None);
     if let Some(cm) = r.cm_360 {
         ui.horizontal(|ui| {
-            ui.label(RichText::new(format!("{cm:.1}")).font(display_bold(34.0)).color(ACCENT));
+            ui.label(
+                RichText::new(format!("{cm:.1}"))
+                    .font(display_bold(34.0))
+                    .color(ACCENT),
+            );
             let unit = match r.rel_uncertainty {
                 Some(rel) => format!("cm/360° ± {:.0}%", rel * 100.0),
                 None => "cm/360°".into(),
@@ -421,6 +554,10 @@ fn result_card(ui: &mut Ui, r: &ResultView) {
             Tone::Muted => TEXT_SECONDARY,
             Tone::Warn => WARN,
         };
-        ui.label(RichText::new(widgets::arrows(line)).font(body(13.0)).color(color));
+        ui.label(
+            RichText::new(widgets::arrows(line))
+                .font(body(13.0))
+                .color(color),
+        );
     }
 }

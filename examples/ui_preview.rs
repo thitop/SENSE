@@ -44,8 +44,8 @@ struct Scene {
 }
 
 /// One round of the sample run: tested cm, range before it, what it concluded, the counts
-/// (too fast, too slow, tie) for Flicking / Micro-adjustment / Tracking, the guess after it and
-/// the next pick.
+/// (too fast, too slow, tie) for Flicking / Micro-adjustment / Tracking, the guess after it, the
+/// next pick and the range that pick was allowed within.
 struct SampleRound {
     cm: f64,
     range: (f64, f64),
@@ -53,6 +53,7 @@ struct SampleRound {
     counts: [(usize, usize, usize); 3],
     guess: RoundGuess,
     next: NextPick,
+    pick: (f64, f64),
 }
 
 /// A 7-round run that settles on 34.2 cm, as `BlockScheduler` played it with these counts
@@ -63,29 +64,32 @@ fn sample_rounds() -> Vec<SampleRound> {
     use NextPick::*;
     use PsaRoundConclusion::*;
     let guess = |cm_360, rel_uncertainty| RoundGuess::Guess { cm_360, rel_uncertainty };
-    let r = |cm, range, conclusion, counts, guess, next| SampleRound {
+    let r = |cm, range, conclusion, counts, guess, next, pick| SampleRound {
         cm,
         range,
         conclusion,
         counts,
         guess,
         next,
+        pick,
     };
+    // The pick range is the bounds after round 1 (bisection), then the fit's reach: the bounds
+    // after the round, widened by 20% each way within 15..80.
     vec![
         r(47.5, (15.0, 80.0), TooSlowNeedFaster, [(1, 6, 2), (1, 4, 1), (4, 9, 3)],
-            RoundGuess::OneSensitivity, Midpoint { cm_360: 31.25 }),
+            RoundGuess::OneSensitivity, Midpoint { cm_360: 31.25 }, (15.0, 47.5)),
         r(31.25, (15.0, 47.5), TooSlowNeedFaster, [(2, 5, 2), (1, 4, 1), (5, 8, 3)],
-            guess(14.17, 3.27), FitClamped { guess_cm: 14.17, cm_360: 15.0 }),
+            guess(14.17, 3.27), FitClamped { guess_cm: 14.17, cm_360: 15.0 }, (15.0, 37.5)),
         r(15.0, (15.0, 31.25), TooFastNeedSlower, [(8, 0, 1), (5, 1, 0), (11, 3, 2)],
-            guess(27.1, 0.20), FitEstimate { cm_360: 27.1 }),
+            guess(27.1, 0.20), FitEstimate { cm_360: 27.1 }, (15.0, 37.5)),
         r(27.1, (15.0, 31.25), TooFastNeedSlower, [(8, 1, 0), (5, 1, 0), (12, 2, 2)],
-            guess(32.4, 0.15), FitEstimate { cm_360: 32.4 }),
+            guess(32.4, 0.15), FitEstimate { cm_360: 32.4 }, (21.03, 37.5)),
         r(32.4, (26.29, 31.25), TooFastNeedSlower, [(6, 2, 1), (3, 2, 1), (8, 6, 2)],
-            guess(34.07, 0.14), FitEstimate { cm_360: 34.07 }),
+            guess(34.07, 0.14), FitEstimate { cm_360: 34.07 }, (25.0, 37.5)),
         r(34.07, (31.25, 31.25), BalancedNarrow, [(3, 3, 3), (2, 2, 2), (6, 6, 4)],
-            guess(34.09, 0.12), FitEstimate { cm_360: 34.09 }),
+            guess(34.09, 0.12), FitEstimate { cm_360: 34.09 }, (25.0, 37.5)),
         r(34.09, (31.25, 31.25), TooFastNeedSlower, [(3, 3, 3), (2, 2, 2), (8, 7, 1)],
-            guess(34.24, 0.11), Last),
+            guess(34.24, 0.11), Last, (31.25, 31.25)),
     ]
 }
 
@@ -110,6 +114,8 @@ fn sample_diagnostics() -> RunDiagnostics {
             trace: Some(RoundTrace {
                 low_cm_360: r.range.0,
                 high_cm_360: r.range.1,
+                pick_low_cm_360: r.pick.0,
+                pick_high_cm_360: r.pick.1,
                 guess: r.guess,
                 next: r.next,
             }),
@@ -127,6 +133,36 @@ fn sample_diagnostics() -> RunDiagnostics {
         result_rel_uncertainty: Some(0.11),
         ..Default::default()
     }
+}
+
+/// A real run with no answer: the player wants it slower than the search allows, so nearly every
+/// pair says "too fast" at every sensitivity tested and the dots climb toward 80 cm.
+fn no_answer_result(at: chrono::DateTime<Utc>) -> CalibrationResult {
+    use aim_trainer::sensitivity::combiner::Signal;
+    use aim_trainer::sensitivity::paired::PairResult;
+    let mut run = CalibrationRun::new(7);
+    let mut n = 0usize;
+    while !run.is_completed() {
+        let seg = run.segment().unwrap();
+        if seg.counted {
+            for _ in 0..6 {
+                n += 1;
+                // One pair in seven leans the other way.
+                let signal = if n % 7 == 0 { Signal::TooSlow } else { Signal::TooFast };
+                if matches!(seg.kind, TestKind::Micro | TestKind::Tracking) {
+                    let (faster_cost, slower_cost) = if signal == Signal::TooFast { (2.0, 1.0) } else { (1.0, 2.0) };
+                    run.record_pair(seg.kind, PairResult { faster_cost, slower_cost, signal, band: None });
+                } else {
+                    let band = (seg.kind == TestKind::Flick).then_some(FlickBand::ALL[n % 3]);
+                    run.record(seg.kind, band, signal);
+                }
+            }
+        }
+        run.finish_segment();
+    }
+    let result = run.build_result(vec![], None, at);
+    assert!(result.no_answer, "the no-answer scene needs a run without an answer");
+    result
 }
 
 fn profile(calibrated: bool) -> PlayerProfile {
@@ -373,7 +409,7 @@ fn scenes() -> Vec<Scene> {
     }
     v.push(none);
 
-    // The calibration replay under "How we got here", scrolled into view.
+    // The calibration replay under "How we got here", on a page tall enough to show it unscrolled.
     const TALL: (u32, u32) = (1280, 1600);
     let replay_scene = |name, size, step: usize, edit: fn(&mut CalibrationResult)| {
         let mut s = base(name, size, Screen::Sensitivity, true);
@@ -389,8 +425,7 @@ fn scenes() -> Vec<Scene> {
     v.push(replay_scene("sensitivity-replay-result", TALL, result_step, |_| {}));
     v.push(replay_scene("sensitivity-replay-pooled", TALL, result_step, |c| c.pooled_runs = 3));
     v.push(replay_scene("sensitivity-replay-no-answer", TALL, result_step, |c| {
-        c.no_answer = true;
-        c.confidence = 0.3;
+        *c = no_answer_result(c.at)
     }));
     v.push(replay_scene("sensitivity-replay-legacy", TALL, 2, |c| {
         for r in c.diagnostics.iter_mut().flat_map(|d| d.rounds.iter_mut()) {
