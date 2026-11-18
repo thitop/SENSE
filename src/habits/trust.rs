@@ -4,7 +4,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::data::calibration::{CalibrationResult, RoundSignals, RunDiagnostics};
-use crate::habits::analysis::{calibration_habits, ranked_calibration_habits, Habit, HabitFinding};
+use crate::habits::analysis::{ranked_calibration_habits, Habit, HabitFinding, CAL_MAX_FINDINGS};
+use crate::habits::answers::{relates_to, verdict_for, AnswerCheck};
 use crate::habits::record::AimLog;
 use crate::sensitivity::combiner::{Signal, TestKind};
 
@@ -21,6 +22,8 @@ pub struct HabitReport {
     pub no_answer: bool,
     pub warming_up: bool,
     pub left_out: Vec<LeftOutNote>,
+    #[serde(default)]
+    pub answer_checks: Vec<AnswerCheck>,
 }
 
 const MIN_POINTS: usize = 6;
@@ -179,12 +182,26 @@ pub fn left_out_notes(diag: &RunDiagnostics, findings: &[HabitFinding]) -> Vec<L
 pub fn habit_report(log: &AimLog, result: &CalibrationResult) -> HabitReport {
     let warming_up = result.diagnostics.as_ref().map_or(false, |d| still_warming_up(&d.rounds));
     if result.no_answer {
-        return HabitReport { findings: Vec::new(), no_answer: true, warming_up, left_out: Vec::new() };
+        return HabitReport {
+            findings: Vec::new(),
+            no_answer: true,
+            warming_up,
+            left_out: Vec::new(),
+            answer_checks: Vec::new(),
+        };
     }
-    // Notes look at every habit found, not just the few that fit on the screen.
-    let ranked = ranked_calibration_habits(log, result.cm_360);
+    // Notes and answer checks look at every habit found, not just the few that fit on screen.
+    let mut ranked = ranked_calibration_habits(log, result.cm_360);
     let left_out =
         result.diagnostics.as_ref().map(|d| left_out_notes(d, &ranked)).unwrap_or_default();
-    let findings = calibration_habits(log, result.cm_360);
-    HabitReport { findings, no_answer: false, warming_up, left_out }
+    let problems: &[_] = result.setup.as_ref().map_or(&[], |s| s.problems.as_slice());
+    let habits: Vec<Habit> = ranked.iter().map(|f| f.habit).collect();
+    let answer_checks: Vec<AnswerCheck> = problems
+        .iter()
+        .filter_map(|&p| verdict_for(p, &habits).map(|verdict| AnswerCheck { problem: p, verdict }))
+        .collect();
+    // Habits that match or oppose an answer come first (stable), then the cut to what shows.
+    ranked.sort_by_key(|f| !problems.iter().any(|&p| relates_to(p, f.habit)));
+    ranked.truncate(CAL_MAX_FINDINGS);
+    HabitReport { findings: ranked, no_answer: false, warming_up, left_out, answer_checks }
 }
