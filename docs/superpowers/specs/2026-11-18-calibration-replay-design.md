@@ -62,12 +62,14 @@ Each round tested one sensitivity, in pairs: one target a little faster (+12%), 
 slower. Whichever side you did better on says which way to go. Where that flips is your number.
 
 ┌ graph ───────────────────────────────────────────────────────────────┐
-│ y: cm/360 (log scale)   x: R1 … R7                                   │
+│ y: cm/360 (log scale, captioned cm/360°)   x: R1 … R7                │
 │ · tested sensitivity per round (centre value only, not the ±12%     │
 │   sides), dot red = too fast, blue = too slow, grey = even; current  │
 │   round ringed in accent; line joins the dots                        │
-│ · search range per round, faint accent band                          │
-│ · best guess so far, green dashed line with a ± band                 │
+│ · per round, faint accent band: the range that round's sensitivity   │
+│   was picked within, so the dot always lies inside it                │
+│ · best guess so far, green dashed line with a ± band from            │
+│   cm/(1+rel) to cm·(1+rel), symmetric on the log axis                │
 │ · on Result: horizontal accent line at the result, labelled          │
 │ legend: Too fast · Too slow · Tie · Search range · Best guess        │
 └──────────────────────────────────────────────────────────────────────┘
@@ -120,8 +122,9 @@ Graph steps only reveal rounds up to the current one; later rounds are blank.
        `Next round tests X cm: the best guess so far.` When line 1 said the guess was too uncertain:
        `Next round tests X cm: a rough first guess.`
      - The fit pick was clamped to the reach `[low × 0.8, high × 1.2]` (within the overall search
-       limits): `The best guess (A cm) is outside what's been tested, so the next round goes as far
-       as it can: X cm.`
+       limits): `The best guess (A cm) is further than one round may move, so the next round goes as
+       far as it can: X cm.` When line 1 said the guess was too uncertain: `A rough first guess (A cm)
+       is further than one round may move, so the next round goes as far as it can: X cm.`
      - The fit had no answer and the scheduler fell back to the midpoint:
        `Next round tests the middle of the range (X cm).`
      - The wording follows the branch `end_block` actually took (recorded), not the round number.
@@ -131,7 +134,8 @@ Graph steps only reveal rounds up to the current one; later rounds are blank.
 
 - The number and its ± (the combined estimate's `rel_uncertainty`, saved as
   `RunDiagnostics::result_rel_uncertainty`; no ± when it's missing), `cm/360°`.
-- One line: `Every test flips from "too fast" to "too slow" here. Each test on its own:`
+- One line: `Where your tests flip from "too fast" to "too slow". Each test on its own:` (not "every
+  test flips here": a left-out or no-trend test did not flip).
 - If the last round's best guess (all tests) differs from the result because tests were left out
   (`trusted_recommendation` drops them), one line explains the jump:
   `Leaving out Tracking moved it from A to B cm.`
@@ -140,8 +144,11 @@ Graph steps only reveal rounds up to the current one; later rounds are blank.
 - If `pooled_runs > 1`: `Combined with N earlier runs → X cm`. The graph and rounds are this run's; the
   number and per-test estimates are pooled, and the step must say so rather than imply this run alone
   produced the number.
-- If `no_answer`: the Result step shows `No result: every test leaned the same way at every sensitivity
-  tested`, no result line on the graph.
+- If `no_answer`, no result line on the graph, and the Result step says why. `no_answer` covers two
+  cases, told apart by `RunDiagnostics::result_rel_uncertainty`:
+  - a fit exists but is too uncertain (`result_rel_uncertainty` is set): `No result: the tests flipped,
+    but too unevenly to give a number`;
+  - no fit at all: `No result: every test leaned the same way at every sensitivity tested`.
 - If `runs_disagree`: same note the page already shows (`result_note`).
 
 ## Data
@@ -151,7 +158,8 @@ counts per round. What's missing, and must be recorded at run time so the cards 
 
 | New, per round | Source | Use |
 |---|---|---|
-| search range before the round (`low`, `high`) | `BlockScheduler` bounds when the block starts | range band (shows `low`/`high`; a clamped pick may put the dot outside it, which the card explains) |
+| search range before the round (`low`, `high`) | `BlockScheduler` bounds when the block starts | round 1's range band |
+| the range the next sensitivity was allowed to be picked within (`pick_low`, `pick_high`) | `end_block`: the fit's reach `[lo, hi]` when the fit branch picked it, else the bounds after the round (bisection, and the last round) | range band of the next round |
 | best guess after the round (`cm`, `rel_uncertainty`), or why there is none (`OneSensitivity`, `AllOneWay`) | `fit_estimate()` / the joint fit after `end_block` | green line, footer line 1 |
 | how the next sensitivity was chosen: `Midpoint`, `FitEstimate`, `FitClamped { guess_cm }`, `FitFallbackMidpoint`, `Last` | which branch `end_block` took | footer line 2 |
 | the block's overall verdict | existing `conclusion` (`CalibrationRound`) | dot colour, bisection wording |
@@ -159,9 +167,17 @@ counts per round. What's missing, and must be recorded at run time so the cards 
 Add these as optional fields with `#[serde(default)]` on `RoundSignals` (or a sibling list on
 `RunDiagnostics`, builder's call) so older saved results still load.
 
+The range band of a round is the range that round's own tested value was picked within: round 1's
+starting search range, then round i−1's pick range. The tested dot always lies inside its band. (The
+bounds before a round are not that range: from round 3 on the fit may pick up to 20% past them, and
+the adaptive bound update can collapse them to a single value.) A trace saved before the pick range was
+kept has 0 there, and the following rounds get no band.
+
 **Older results** (missing the new fields): show rounds and verdict bars; leave out the range band and
-best-guess line; footer line 1 omitted; footer line 2 uses only the stored `conclusion`
-(`Overall too fast → next round went slower` etc.) without naming the reason. Results without
+best-guess line; footer line 1 omitted; footer line 2 states the stored `conclusion` and what was
+tested next, without claiming a direction or naming the reason: `Overall too fast · next round tested
+X cm` (`Overall too slow` / `About even` likewise), where X is the next round's saved tested value. The
+last round keeps `That was the last round → result`. Results without
 `diagnostics` at all (flick-only, very old) keep today's two graphs instead of the replay.
 
 ## Behaviour details
@@ -170,9 +186,10 @@ best-guess line; footer line 1 omitted; footer line 2 uses only the stored `conc
   What to practise. Under the number (left column, after the confidence notes) a link
   `How we got this number →` scrolls the page to the section and starts playback from Round 1.
 - Autoplay: once per finished run, armed when My sensitivity opens straight from `finish_calibration`,
-  and started only when the section first comes on screen (e.g. `ui.is_rect_visible` on the section's
-  rect), so it doesn't finish unseen below the fold. Opening the page later starts paused on Round 1
-  (my call: rewatching is opt-in; the page shouldn't animate every visit).
+  and started only when the replay graph first comes on screen (`ui.is_rect_visible` on the graph
+  card's rect), so it doesn't finish unseen below the fold. Opening the page later starts paused on
+  Round 1 (my call: rewatching is opt-in; the page shouldn't animate every visit): every frame the page
+  isn't drawn drops the armed autoplay, stops playback and rewinds to Round 1.
 - Any click on ◀ ▶ or a round button stops playback. Play from Result restarts at Round 1.
 - Playback state lives in `UiState` (current step, playing, time of last step) and resets when a new
   calibration finishes or the result changes (e.g. "Use only the latest run").
