@@ -7,7 +7,7 @@ use std::fs;
 use std::path::Path;
 
 use aim_trainer::data::{
-    AggregatedTaskMetrics, CalibrationResult, CalibrationRound, EstimateRecord, MetricPoint, NextPick,
+    AggregatedTaskMetrics, CalibrationResult, CalibrationRound, DisplayMode, EstimateRecord, MetricPoint, NextPick,
     PlayerProfile, RoundGuess, RoundSignals, RoundTrace, RunDiagnostics, SessionHistory, SessionRecord,
     TrackingStats,
 };
@@ -41,6 +41,7 @@ struct Scene {
     task_name: &'static str,
     offscreen: Vec<glam::Vec2>,
     tracking: Option<TrackingStats>,
+    display_mode: DisplayMode,
 }
 
 /// One round of the sample run: tested cm, range before it, what it concluded, the counts
@@ -320,6 +321,7 @@ fn base(name: &'static str, size: (u32, u32), screen: Screen, calibrated: bool) 
         task_name: "Flick Shot",
         offscreen: Vec::new(),
         tracking: None,
+        display_mode: DisplayMode::Window,
     }
 }
 
@@ -336,6 +338,12 @@ fn scenes() -> Vec<Scene> {
         base("history", L, Screen::History, true),
         base("settings", L, Screen::Settings, true),
     ];
+
+    // Fullscreen picked, and the whole screen at the small size down to the profiles.
+    let mut fullscreen = base("settings-fullscreen", L, Screen::Settings, true);
+    fullscreen.display_mode = DisplayMode::Fullscreen;
+    v.push(fullscreen);
+    v.push(base("settings-small-full", (1024, 1100), Screen::Settings, true));
 
     let mut detail = base("history-detail", L, Screen::History, true);
     detail.state.open_session = Some("s0".into());
@@ -619,6 +627,7 @@ fn render(gpu: &Gpu, mut scene: Scene, out_dir: &Path) {
         audio_enabled: true,
         volume: 0.6,
         music_volume: 0.5,
+        display_mode: scene.display_mode,
         fps: 240,
         offscreen_targets: &scene.offscreen,
         tracking: scene.tracking,

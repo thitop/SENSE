@@ -113,6 +113,7 @@ screen says so. Fortnite, Rainbow Six Siege and WARDOGS have no verified scope v
 | 1 to 6 | Start a practice scenario (practice only) |
 | R | Retry the current practice scenario |
 | C | Open My sensitivity (practice only) |
+| F11 or Alt+Enter | Switch between window and fullscreen (also in Settings > Display) |
 
 ### Where your data is kept
 
@@ -124,7 +125,7 @@ address bar):
 | `profiles\` | Each profile: DPI, main game, sensitivity, latest result |
 | `history\` | Every session you played, per profile |
 | `calibrations\` | Every calibration run, with what each test said per round |
-| `settings.json` | Sound settings (effects on or off, effects volume, music volume) |
+| `settings.json` | Sound settings (effects on or off, effects volume, music volume), window or fullscreen, and where the window was |
 
 Close SENSE before editing or deleting any of these files.
 

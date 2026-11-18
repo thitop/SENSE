@@ -314,6 +314,7 @@ struct Fixture {
     profiles: Vec<PlayerProfile>,
     db: GameDatabase,
     history: SessionHistory,
+    display_mode: aim_trainer::data::DisplayMode,
 }
 
 impl Fixture {
@@ -323,6 +324,7 @@ impl Fixture {
             profile,
             db: GameDatabase::new(),
             history: SessionHistory::new("default".into()),
+            display_mode: aim_trainer::data::DisplayMode::Window,
         }
     }
 
@@ -344,6 +346,7 @@ impl Fixture {
             audio_enabled: true,
             volume: 0.5,
             music_volume: 0.5,
+            display_mode: self.display_mode,
             fps: 240,
             offscreen_targets: &[],
             tracking: None,
@@ -950,6 +953,28 @@ fn sensitivity_screen_start_button_starts_calibration() {
     let model = fx.model();
     let actions = click_labelled(&mut state, &model, "Start calibration");
     assert_eq!(actions, [UiAction::StartCalibration]);
+}
+
+#[test]
+fn settings_display_switch_picks_the_other_mode() {
+    use aim_trainer::data::DisplayMode;
+    use aim_trainer::ui::UiAction;
+    use egui_phosphor::regular as icon;
+    let window = format!("{}  Window", icon::APP_WINDOW);
+    let fullscreen = format!("{}  Fullscreen", icon::CORNERS_OUT);
+    let mut fx = Fixture::new(onboarded_profile());
+    let mut state = UiState::new();
+    state.screen = Screen::Settings;
+
+    let actions = click_labelled(&mut state, &fx.model(), &fullscreen);
+    assert_eq!(actions, [UiAction::SetDisplayMode(DisplayMode::Fullscreen)]);
+    // Clicking the mode already in use does nothing.
+    assert_eq!(click_labelled(&mut state, &fx.model(), &window), []);
+
+    fx.display_mode = DisplayMode::Fullscreen;
+    assert_eq!(click_labelled(&mut state, &fx.model(), &fullscreen), []);
+    let actions = click_labelled(&mut state, &fx.model(), &window);
+    assert_eq!(actions, [UiAction::SetDisplayMode(DisplayMode::Window)]);
 }
 
 /// Render the UI, find the drawn text containing `label`, click its centre, and return the
