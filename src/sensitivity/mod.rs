@@ -9,6 +9,7 @@ pub mod pooling;
 pub mod games;
 pub mod path_recorder;
 pub mod psa;
+pub mod search_plan;
 pub mod tracking_signal;
 
 pub use analyzer::StatisticalAnalyzer;
