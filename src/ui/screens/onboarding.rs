@@ -212,17 +212,18 @@ fn step_sens(ui: &mut egui::Ui, draft: &mut OnboardingDraft, model: &UiModel, ac
         });
     });
 
-    let complete = |cm_360: f64| UiAction::CompleteOnboarding {
+    let complete = |cm_360: f64, sens_known: bool| UiAction::CompleteOnboarding {
         dpi,
         game_id: draft.game_id.clone(),
         cm_360,
+        sens_known,
     };
     if skip {
-        actions.push(complete(model.profile.current_cm_360));
+        actions.push(complete(model.profile.current_cm_360, false));
     } else if finish {
         draft.attempted = true;
         if let Ok(cm) = result {
-            actions.push(complete(cm));
+            actions.push(complete(cm, true));
         }
     }
 }

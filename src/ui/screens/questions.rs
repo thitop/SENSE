@@ -82,7 +82,15 @@ impl QuestionsDraft {
 
 /// "Skip all": every answer becomes "Not sure"; the calibration starts unless we came from Settings.
 pub fn skip_all(draft: &QuestionsDraft, own_cm: f64, now: DateTime<Utc>) -> UiAction {
-    UiAction::SaveSetup { setup: PlayerSetup::not_sure(own_cm, now), start_after: !draft.from_settings }
+    let setup = if draft.q1_only {
+        // Only the first question was being asked again: keep the saved grip, pivot and pad.
+        let mut kept = draft.clone();
+        kept.problems.clear();
+        kept.to_setup(own_cm, now)
+    } else {
+        PlayerSetup::not_sure(own_cm, now)
+    };
+    UiAction::SaveSetup { setup, start_after: !draft.from_settings }
 }
 
 pub fn cancel() -> UiAction {

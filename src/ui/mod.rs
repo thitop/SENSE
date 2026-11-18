@@ -42,7 +42,7 @@ pub enum UiAction {
     ApplySensitivity(f64),
     /// Stop pooling: the latest calibration run stands alone from now on.
     UseLatestRunOnly,
-    CompleteOnboarding { dpi: f64, game_id: String, cm_360: f64 },
+    CompleteOnboarding { dpi: f64, game_id: String, cm_360: f64, sens_known: bool },
     RerunSetup,
     /// Save the player's answers; `start_after` begins the calibration right away.
     SaveSetup { setup: PlayerSetup, start_after: bool },

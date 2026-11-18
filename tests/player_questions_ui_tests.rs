@@ -73,6 +73,24 @@ fn skip_all_saves_not_sure_and_starts() {
 }
 
 #[test]
+fn skip_all_in_q1_only_keeps_other_answers() {
+    let now = Utc::now();
+    let mut s = saved();
+    s.answered_at_cm = 30.0;
+    let draft = QuestionsDraft::from_setup(Some(&s), true, false);
+    let UiAction::SaveSetup { setup, start_after } = questions::skip_all(&draft, 41.0, now) else {
+        panic!("expected SaveSetup");
+    };
+    assert!(start_after);
+    assert!(setup.problems.is_empty());
+    assert_eq!(setup.grip, Some(Grip::Claw));
+    assert_eq!(setup.pivot, Some(Pivot::Wrist));
+    assert_eq!(setup.pad, Some(PadSize::Medium));
+    assert_eq!(setup.answered_at_cm, 41.0);
+    assert_eq!(setup.answered_at, now);
+}
+
+#[test]
 fn cancel_saves_nothing() {
     assert_eq!(questions::cancel(), UiAction::CancelQuestions);
     // Navigating a draft produces no save by itself.

@@ -44,6 +44,12 @@ than the round's sensitivity. Doing better on the slower side means the round's 
 and the other way round. Habits you have at every sensitivity, like trailing a moving target, cancel out
 this way. One fit over all tests picks the next sensitivity to try and, at the end, the result.
 
+Before the first run, four optional questions ask what goes wrong, how you hold the mouse, what moves
+when you flick, and how big your mousepad is. They decide where the search starts and which direction it
+tries first. **Skip all** answers every question with "Not sure" and starts the run. If you later apply a
+result that moves your sensitivity by more than 5%, only the first question is asked again. You can change
+your answers any time under **Settings > Your setup**.
+
 Press **Esc** to pause. The interrupted test starts again from the beginning when you resume.
 
 ### Reading the result

@@ -1001,6 +1001,40 @@ fn click_labelled(state: &mut UiState, model: &UiModel, label: &str) -> Vec<aim_
 }
 
 #[test]
+fn onboarding_skip_marks_sens_unknown() {
+    let fx = Fixture::new(PlayerProfile::new("p".into(), "P".into(), 800.0, "valorant".into()));
+    let model = fx.model();
+    let run = |label: &str| {
+        let mut state = UiState::new();
+        let mut draft = OnboardingDraft::from_profile(&fx.profile);
+        draft.step = 3;
+        draft.sens = "0.35".into();
+        state.onboarding = Some(draft);
+        click_labelled(&mut state, &model, label)
+    };
+    let skip = run("Skip");
+    assert!(
+        matches!(skip.as_slice(), [aim_trainer::ui::UiAction::CompleteOnboarding { sens_known: false, .. }]),
+        "{skip:?}"
+    );
+    let finish = run("Finish");
+    assert!(
+        matches!(finish.as_slice(), [aim_trainer::ui::UiAction::CompleteOnboarding { sens_known: true, .. }]),
+        "{finish:?}"
+    );
+}
+
+#[test]
+fn settings_offers_your_setup() {
+    let fx = Fixture::new(onboarded_profile());
+    let model = fx.model();
+    let mut state = UiState::new();
+    state.screen = Screen::Settings;
+    let actions = click_labelled(&mut state, &model, "Your setup");
+    assert_eq!(actions, [aim_trainer::ui::UiAction::OpenSetupQuestions]);
+}
+
+#[test]
 fn hits_without_an_offset_do_not_average_in_a_zero() {
     use aim_trainer::data::MetricPoint;
     use aim_trainer::ui::screens::history::detail_stats;
