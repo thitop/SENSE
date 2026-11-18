@@ -13,8 +13,8 @@ No third-party artwork is used in the placeholders.
 ## Status per file
 
 - Final AI art (vectorised): `grip_palm`, `grip_claw`, `grip_fingertip`, `pivot_wrist`,
-  `pivot_fingers`, `pivot_shoulder`, `pad_small`, `pad_medium`, `pad_large`.
-- Still placeholders: `pivot_arm` (original being regenerated), `not_sure`
+  `pivot_fingers`, `pivot_arm`, `pivot_shoulder`, `pad_small`, `pad_medium`, `pad_large`.
+- Still placeholders: `not_sure`
   (no original).
 
 ## Regenerating from the originals
