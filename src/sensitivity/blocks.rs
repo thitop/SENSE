@@ -111,6 +111,47 @@ impl SignalCounts {
     }
 }
 
+/// What the evidence said after a round.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum RoundGuess {
+    /// The combined best guess so far and its relative uncertainty.
+    Guess { cm_360: f64, rel_uncertainty: f64 },
+    /// Only one sensitivity tested so far: nothing to compare yet.
+    OneSensitivity,
+    /// Two or more sensitivities tested, but the misses all lean one way: no crossover.
+    NoCrossover,
+}
+
+/// How the next sensitivity was chosen after a round.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum NextPick {
+    /// Bisection: the middle of the range.
+    Midpoint { cm_360: f64 },
+    /// The fit's own estimate, inside the reach.
+    FitEstimate { cm_360: f64 },
+    /// The fit pointed past the reach (`guess_cm`), so the pick stopped at its edge.
+    FitClamped { guess_cm: f64, cm_360: f64 },
+    /// The fit had no answer, so the pick is the middle of the range.
+    FitFallbackMidpoint { cm_360: f64 },
+    /// The search is over: nothing further is tested.
+    Last,
+}
+
+/// One round as it played out: the range it started from, the guess after it and the next pick.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RoundTrace {
+    pub low_cm_360: f64,
+    pub high_cm_360: f64,
+    /// The range the next sensitivity was allowed to be picked within: the fit's reach when the
+    /// fit picked it, else the bounds after this round. 0 in traces saved before it was kept.
+    #[serde(default)]
+    pub pick_low_cm_360: f64,
+    #[serde(default)]
+    pub pick_high_cm_360: f64,
+    pub guess: RoundGuess,
+    pub next: NextPick,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlockResult {
     pub block_number: usize,
@@ -121,6 +162,7 @@ pub struct BlockResult {
     /// without a band count toward `per_test` only.
     pub flick_bands: [SignalCounts; 3],
     pub conclusion: PsaRoundConclusion,
+    pub trace: RoundTrace,
 }
 
 impl BlockResult {
@@ -288,6 +330,20 @@ impl BlockScheduler {
         self.estimate_set().and_then(|s| recommend(&s, None)).map(|r| r.neutral.cm_360)
     }
 
+    /// The combined best guess over the finished blocks, or why there is none yet.
+    fn round_guess(&self) -> RoundGuess {
+        let guess = self.estimate_set().and_then(|s| recommend(&s, None)).map(|r| r.neutral);
+        if let Some(c) = guess {
+            return RoundGuess::Guess { cm_360: c.cm_360, rel_uncertainty: c.rel_uncertainty };
+        }
+        let first = self.history[0].tested_cm_360;
+        if self.history.iter().all(|b| b.tested_cm_360 == first) {
+            RoundGuess::OneSensitivity
+        } else {
+            RoundGuess::NoCrossover
+        }
+    }
+
     /// Weighted vote of the block's misses: every judged miss counts once, times its test's
     /// weight. (Normalising per test let a single tracking pair outvote nine flicks in real
     /// play; that normalisation dated from tracking giving 16 windows per block.)
@@ -310,6 +366,7 @@ impl BlockScheduler {
         let adaptive = self.history.len() >= Self::BISECTION_BLOCKS;
         let tested = self.current_cm_360;
         let vote = self.block_vote();
+        let (range_low, range_high) = (self.low_cm_360, self.high_cm_360);
 
         let conclusion = if vote > 0.0 {
             self.low_cm_360 = if adaptive {
@@ -340,7 +397,17 @@ impl BlockScheduler {
             per_test: self.current,
             flick_bands: self.current_bands,
             conclusion,
+            // Filled in below, once the guess and the next pick are known.
+            trace: RoundTrace {
+                low_cm_360: range_low,
+                high_cm_360: range_high,
+                pick_low_cm_360: 0.0,
+                pick_high_cm_360: 0.0,
+                guess: RoundGuess::OneSensitivity,
+                next: NextPick::Last,
+            },
         });
+        let guess = self.round_guess();
         self.current = [SignalCounts::default(); 6];
         self.current_bands = [SignalCounts::default(); 3];
         self.block_number += 1;
@@ -348,17 +415,33 @@ impl BlockScheduler {
         // Every block runs: the session has a fixed length, and stopping when the bounds meet
         // would let one noisy block end the search.
         let midpoint = (self.low_cm_360 + self.high_cm_360) * 0.5;
-        if self.block_number > self.max_blocks {
+        let bounds = (self.low_cm_360, self.high_cm_360);
+        let (next, pick_range) = if self.block_number > self.max_blocks {
             self.is_completed = true;
             self.fit_cm_360 = self.fit_estimate();
             let estimate = self.recommendation(None).map(|r| r.neutral.cm_360).unwrap_or(midpoint);
             self.recommended_cm_360 = Some(estimate.clamp(self.search_min_cm, self.search_max_cm));
+            (NextPick::Last, bounds)
         } else if self.history.len() >= Self::BISECTION_BLOCKS {
             let lo = (self.low_cm_360 * (1.0 - Self::FIT_REACH)).max(self.search_min_cm);
             let hi = (self.high_cm_360 * (1.0 + Self::FIT_REACH)).min(self.search_max_cm);
-            self.current_cm_360 = self.fit_estimate().unwrap_or(midpoint).clamp(lo, hi);
+            let fit = self.fit_estimate();
+            self.current_cm_360 = fit.unwrap_or(midpoint).clamp(lo, hi);
+            let cm_360 = self.current_cm_360;
+            let next = match fit {
+                Some(g) if (lo..=hi).contains(&g) => NextPick::FitEstimate { cm_360 },
+                Some(g) => NextPick::FitClamped { guess_cm: g, cm_360 },
+                None => NextPick::FitFallbackMidpoint { cm_360 },
+            };
+            (next, (lo, hi))
         } else {
             self.current_cm_360 = midpoint;
+            (NextPick::Midpoint { cm_360: midpoint }, bounds)
+        };
+        if let Some(last) = self.history.last_mut() {
+            last.trace.guess = guess;
+            last.trace.next = next;
+            (last.trace.pick_low_cm_360, last.trace.pick_high_cm_360) = pick_range;
         }
         conclusion
     }

@@ -88,6 +88,19 @@ pub trait Task: Send + Sync {
     fn take_pair_results(&mut self) -> Vec<PairResult> {
         Vec::new()
     }
+
+    /// Whether a click is a shot. Tracking scores time on target, so clicks do nothing there.
+    fn takes_shots(&self) -> bool {
+        true
+    }
+    /// Time on target so far (tracking only).
+    fn tracking_stats(&self) -> Option<crate::data::TrackingStats> {
+        None
+    }
+    /// The crosshair is on the target this frame (tracking only).
+    fn on_target_now(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -250,6 +263,24 @@ impl TaskManager {
 
     pub fn take_pair_results(&mut self) -> Vec<PairResult> {
         self.current_task.take_pair_results()
+    }
+
+    /// Whether a click while running is a shot (false for tracking).
+    pub fn takes_shots(&self) -> bool {
+        self.current_task.takes_shots()
+    }
+
+    /// The current task's time on target, while it runs and after it finishes (tracking only).
+    pub fn tracking_stats(&self) -> Option<crate::data::TrackingStats> {
+        match self.state {
+            TaskState::Running | TaskState::Finished => self.current_task.tracking_stats(),
+            _ => None,
+        }
+    }
+
+    /// The crosshair is on a tracking target right now.
+    pub fn on_target_now(&self) -> bool {
+        self.state == TaskState::Running && self.current_task.on_target_now()
     }
 
     pub fn start_task_with_countdown(&mut self) {

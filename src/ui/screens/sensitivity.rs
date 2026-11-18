@@ -8,7 +8,8 @@ use crate::game::calibration::{delta_text, parse_game_sens, primary_game, valida
 use crate::sensitivity::converter::SensitivityConverter;
 use crate::ui::screens::section;
 use crate::ui::theme::*;
-use crate::ui::{graphs, widgets, UiAction, UiModel, UiState};
+use crate::ui::replay::{self, ReplayState};
+use crate::ui::{graphs, replay_view, widgets, UiAction, UiModel, UiState};
 
 const COPIED_SECS: f64 = 1.5;
 const ROWS_COLLAPSED: usize = 2;
@@ -121,9 +122,12 @@ fn result(
     let now = ui.input(|i| i.time);
     let main = primary_game(model.games, &p.primary_game_id);
     let sens_in = |g| SensitivityConverter::cm_360_to_game_sens(g, p.dpi, cal.cm_360);
+    let story = replay::replay(cal);
+    let steps = story.as_ref().map(|r| r.rounds.len() + 1);
+    state.replay.sync(cal.at, cal.pooled_runs);
 
     if cal.no_answer {
-        no_answer(ui, cal, actions);
+        no_answer(ui, cal, &mut state.replay, steps, now, actions);
     } else {
         ui.horizontal_top(|ui| {
             // Left: the number.
@@ -169,6 +173,7 @@ fn result(
                             .color(WARN),
                     );
                 }
+                replay_link(ui, &mut state.replay, steps, now);
                 if let Some(d) = &cal.diagnostics {
                     ui.add_space(S4);
                     per_test(ui, d);
@@ -277,7 +282,18 @@ fn result(
     }
 
     ui.add_space(S8);
-    section(ui, "How we got here");
+    let heading = section(ui, "How we got here");
+    if let Some(story) = &story {
+        if state.replay.scroll_pending {
+            heading.scroll_to_me(Some(Align::Min));
+            state.replay.scroll_pending = false;
+        }
+        ui.label(RichText::new(replay::INTRO).font(body(13.0)).color(TEXT_SECONDARY));
+        ui.add_space(S3);
+        replay_view::show(ui, &mut state.replay, story);
+        return;
+    }
+    // Runs saved without a per-round record keep the old graphs.
     ui.label(
         RichText::new(
             "Each round tested one sensitivity and moved the range toward where your shots landed cleanly.",
@@ -323,8 +339,24 @@ pub fn result_note(no_answer: bool, runs_disagree: bool) -> Option<&'static str>
     }
 }
 
+/// "How we got this number →" under the result: scrolls down to the replay and plays it.
+fn replay_link(ui: &mut egui::Ui, replay: &mut ReplayState, steps: Option<usize>, now: f64) {
+    let Some(steps) = steps else { return };
+    ui.add_space(S2);
+    if widgets::ghost_button(ui, None, &widgets::arrows(replay::LINK)).clicked() {
+        replay.link_clicked(now, steps);
+    }
+}
+
 /// The result area of a run that found no answer: no number to copy or use.
-fn no_answer(ui: &mut egui::Ui, cal: &CalibrationResult, actions: &mut Vec<UiAction>) {
+fn no_answer(
+    ui: &mut egui::Ui,
+    cal: &CalibrationResult,
+    replay: &mut ReplayState,
+    steps: Option<usize>,
+    now: f64,
+    actions: &mut Vec<UiAction>,
+) {
     ui.scope(|ui| {
         ui.set_max_width(520.0);
         widgets::eyebrow(ui, "Your sensitivity");
@@ -333,6 +365,7 @@ fn no_answer(ui: &mut egui::Ui, cal: &CalibrationResult, actions: &mut Vec<UiAct
         if let Some(note) = result_note(true, false) {
             ui.label(RichText::new(note).font(body(14.0)).color(TEXT_SECONDARY));
         }
+        replay_link(ui, replay, steps, now);
         if let Some(d) = &cal.diagnostics {
             ui.add_space(S4);
             per_test(ui, d);

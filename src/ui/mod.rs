@@ -6,6 +6,8 @@ pub mod graphs;
 pub mod habits;
 pub mod hud;
 pub mod logos;
+pub mod replay;
+pub mod replay_view;
 pub mod screens;
 pub mod theme;
 pub mod widgets;
@@ -67,6 +69,8 @@ pub struct UiModel<'a> {
     pub fps: u32,
     /// Screen-space directions (x right, y up) to live targets outside the view.
     pub offscreen_targets: &'a [glam::Vec2],
+    /// Time on target of the tracking run in progress or just finished.
+    pub tracking: Option<crate::data::TrackingStats>,
 }
 
 /// First-run setup in progress.
@@ -111,6 +115,7 @@ pub struct UiState {
     // Sensitivity screen
     pub copied_at: Option<f64>,
     pub show_all_games: bool,
+    pub replay: replay::ReplayState,
     pub convert_game_id: Option<String>,
     pub convert_value: String,
     // History
@@ -132,6 +137,7 @@ impl UiState {
             pending_delete: None,
             copied_at: None,
             show_all_games: false,
+            replay: replay::ReplayState::default(),
             convert_game_id: None,
             convert_value: String::new(),
             open_session: None,
@@ -154,6 +160,11 @@ pub fn render_ui(ctx: &egui::Context, state: &mut UiState, model: &UiModel) -> V
 
     if !model.profile.onboarded && state.onboarding.is_none() {
         state.onboarding = Some(OnboardingDraft::from_profile(model.profile));
+    }
+
+    // The replay plays by itself only if My sensitivity is on screen right after the run.
+    if !state.menu_open || state.onboarding.is_some() || state.screen != Screen::Sensitivity {
+        state.replay.disarm();
     }
 
     if !state.menu_open {

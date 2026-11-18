@@ -52,7 +52,10 @@ Press **Esc** to pause. The interrupted test starts again from the beginning whe
 
 - Your sensitivity in cm/360° and a confidence level (High, Medium or Low).
 - The value for your main game with a copy button, and the values for every other game.
-- Each test's own estimate, and graphs of how the search narrowed down.
+- Each test's own estimate.
+
+**How we got here** replays the run round by round: what each test said, where SENSE's best guess was,
+and why it tried the next sensitivity. It plays once after a run; the link under your number replays it.
 
 **What to practise** lists up to three aim habits that are still there at your best sensitivity, so
 changing sensitivity won't fix them. The button on each card starts the matching practice scenario. The

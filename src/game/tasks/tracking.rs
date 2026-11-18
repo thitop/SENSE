@@ -7,6 +7,7 @@ use super::super::hit_detection::Ray;
 use super::super::target::Target;
 use super::micro_adjust::mouse_offset_deg;
 use super::{Task, TaskMetrics};
+use crate::data::TrackingStats;
 use crate::sensitivity::paired::{abba, PairBook, PairResult, Side};
 use crate::sensitivity::tracking_signal::{TrackingAnalyzer, TrackingWindow};
 
@@ -58,6 +59,9 @@ pub struct TrackingTask {
     start_time: Instant,
     total_active_time: f32,
     time_on_target: f32,
+    /// The stretch on target in progress, and the longest one so far.
+    on_target_stretch: f32,
+    longest_on_target: f32,
     is_on_target_current_frame: bool,
     accumulated_offset: f32,
     sample_count: u32,
@@ -89,6 +93,8 @@ impl TrackingTask {
             start_time: Instant::now(),
             total_active_time: 0.0,
             time_on_target: 0.0,
+            on_target_stretch: 0.0,
+            longest_on_target: 0.0,
             is_on_target_current_frame: false,
             accumulated_offset: 0.0,
             sample_count: 0,
@@ -169,12 +175,15 @@ impl Task for TrackingTask {
     }
 
     fn description(&self) -> &'static str {
-        "Keep your crosshair smoothly locked onto the moving yellow sphere as it changes directions."
+        "Keep your crosshair on the moving sphere as it changes direction. No shooting: points build while you stay on it."
     }
 
     fn start(&mut self) {
         self.total_active_time = 0.0;
         self.time_on_target = 0.0;
+        self.on_target_stretch = 0.0;
+        self.longest_on_target = 0.0;
+        self.is_on_target_current_frame = false;
         self.accumulated_offset = 0.0;
         self.sample_count = 0;
         self.is_finished = false;
@@ -264,18 +273,42 @@ impl Task for TrackingTask {
                 super::super::hit_detection::intersect_ray_sphere(crosshair_ray, target.position, target.base_radius)
             {
                 self.time_on_target += dt;
+                self.on_target_stretch += dt;
+                self.longest_on_target = self.longest_on_target.max(self.on_target_stretch);
                 self.is_on_target_current_frame = true;
                 self.accumulated_offset += offset;
                 self.sample_count += 1;
             } else {
+                self.on_target_stretch = 0.0;
                 self.is_on_target_current_frame = false;
             }
         }
     }
 
     fn on_click(&mut self, _ray: Ray) -> bool {
-        // Continuous tracking doesn't require clicking
-        self.is_on_target_current_frame
+        // Tracking scores time on target; a click is never a shot (see `takes_shots`).
+        false
+    }
+
+    fn takes_shots(&self) -> bool {
+        false
+    }
+
+    fn tracking_stats(&self) -> Option<TrackingStats> {
+        let pct = if self.total_active_time > 0.0 {
+            (self.time_on_target / self.total_active_time * 100.0).clamp(0.0, 100.0)
+        } else {
+            0.0
+        };
+        Some(TrackingStats {
+            on_target_pct: pct,
+            time_on_target_secs: self.time_on_target,
+            longest_on_target_secs: self.longest_on_target,
+        })
+    }
+
+    fn on_target_now(&self) -> bool {
+        self.is_on_target_current_frame && !self.is_finished
     }
 
     fn is_complete(&self) -> bool {

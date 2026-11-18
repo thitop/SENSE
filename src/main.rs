@@ -10,7 +10,7 @@ mod ui;
 
 use data::{DataManager, MetricPoint, PlayerProfile, SessionHistory, SessionRecord};
 use engine::{
-    audio::{AudioManager, Music, Sfx},
+    audio::{AudioManager, Music, Sfx, TrackingTicker},
     camera::Camera, input::InputManager, renderer::{self, Renderer}, timing::Timing,
 };
 use habits::recorder::AimRecorder;
@@ -71,6 +71,8 @@ struct GameState {
     shot_counter: u32,
     /// Turns live play into aim records.
     aim: AimRecorder,
+    /// Ticks while the crosshair stays on a tracking target.
+    track_ticker: TrackingTicker,
     last_countdown_sec: i32,
 }
 
@@ -151,6 +153,7 @@ impl GameState {
             spawn_watcher: SpawnWatcher::default(),
             shot_counter: 0,
             aim: AimRecorder::new(),
+            track_ticker: TrackingTicker::default(),
             last_countdown_sec: 4,
         }
     }
@@ -314,7 +317,14 @@ impl GameState {
         duration_secs: f32,
         aim: Option<AimLog>,
         habits: Option<habits::HabitReport>,
+        tracking: Option<data::TrackingStats>,
     ) {
+        let points = std::mem::take(&mut self.current_session_points);
+        // Tracking is scored by time on target; clicks there are not shots.
+        let metrics = match tracking {
+            Some(t) => data::AggregatedTaskMetrics::tracking(t),
+            None => data::AggregatedTaskMetrics::compute(points, score, 0),
+        };
         let record = SessionRecord {
             session_id: format!("sess_{}", chrono::Utc::now().timestamp_millis()),
             task_type,
@@ -322,11 +332,7 @@ impl GameState {
             duration_secs,
             tested_cm_360,
             tested_dpi: self.player_dpi,
-            metrics: data::AggregatedTaskMetrics::compute(
-                std::mem::take(&mut self.current_session_points),
-                score,
-                0,
-            ),
+            metrics,
             aim,
             habits,
         };
@@ -347,7 +353,7 @@ impl GameState {
         let report = habits::trust::habit_report(&aim, &result);
         result.habits = Some(report.clone());
         // Stamped with the result's time so History can tell which session is the latest calibration.
-        self.record_session("Calibration".into(), result.at, result.cm_360, totals.score, totals.duration_secs, Some(aim), Some(report));
+        self.record_session("Calibration".into(), result.at, result.cm_360, totals.score, totals.duration_secs, Some(aim), Some(report), None);
         let profile_id = self.data_manager.profile_manager.active_profile_id.clone().unwrap_or_else(|| "default".into());
         if let Err(e) = self.data_manager.archive_calibration(&profile_id, &result) {
             log::warn!("Could not archive the calibration: {e}");
@@ -383,6 +389,7 @@ impl GameState {
         self.task_manager.set_task(TaskType::Flick);
         self.set_cm_360(self.profile_cm_360());
         self.ui_state.show_all_games = false;
+        self.ui_state.replay.arm_autoplay();
         self.open_menu(Screen::Sensitivity);
     }
 
@@ -552,6 +559,7 @@ impl GameState {
             && self.input.is_locked()
             && playing
             && self.task_manager.state == TaskState::Running
+            && self.task_manager.takes_shots()
         {
             self.on_shot(crosshair_ray);
         }
@@ -581,6 +589,11 @@ impl GameState {
             }
             if (was_counting && self.task_manager.state == TaskState::Running) || target_expired {
                 self.sensitivity_engine.path_recorder.start_shot();
+            }
+
+            // A tracking target ticks while the crosshair stays on it: that is when it scores.
+            if self.track_ticker.update(dt, self.task_manager.on_target_now()) {
+                self.audio_manager.play(Sfx::TrackTick, None);
             }
 
             // A target that appeared outside the view gets a sound from its side.
@@ -646,7 +659,8 @@ impl GameState {
                     self.aim.commit();
                     let aim = self.aim.take_log();
                     self.aim.reset();
-                    self.record_session(m.task_name, chrono::Utc::now(), self.current_cm_360, m.score, m.duration_secs, Some(aim), None);
+                    let tracking = self.task_manager.tracking_stats();
+                    self.record_session(m.task_name, chrono::Utc::now(), self.current_cm_360, m.score, m.duration_secs, Some(aim), None, tracking);
                 }
                 // Free the cursor so the result card's buttons can be clicked.
                 self.lock_cursor(false);
@@ -751,6 +765,7 @@ impl GameState {
             music_volume: self.audio_manager.music_volume(),
             fps: self.timing.fps(),
             offscreen_targets: &offscreen_targets,
+            tracking: self.task_manager.tracking_stats(),
         };
         let ui_state = &mut self.ui_state;
         let mut actions = Vec::new();
@@ -787,7 +802,7 @@ impl GameState {
 
         let result = self
             .renderer
-            .render(&targets, &clipped_primitives, &screen_descriptor);
+            .render(&targets, self.task_manager.on_target_now(), &clipped_primitives, &screen_descriptor);
 
         for id in &full_output.textures_delta.free {
             self.renderer.egui_renderer.free_texture(id);

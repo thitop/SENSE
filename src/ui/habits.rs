@@ -125,11 +125,6 @@ pub fn cards(
     }
 }
 
-/// The UI fonts have no right-arrow glyph; the icon font's arrow stands in for it.
-fn arrows(text: &str) -> String {
-    text.replace('\u{2192}', icon::ARROW_RIGHT)
-}
-
 fn muted(ui: &mut egui::Ui, text: &str) {
     ui.label(RichText::new(text).font(body(13.0)).color(TEXT_SECONDARY));
 }
@@ -142,10 +137,10 @@ fn card(ui: &mut egui::Ui, f: &HabitFinding, p: &Progress, actions: &mut Vec<UiA
         ui.spacing_mut().item_spacing.y = S1;
         ui.label(RichText::new(&l.title).font(medium(14.0)).color(TEXT));
         ui.label(RichText::new(&l.value).font(display(22.0)).color(WARN));
-        ui.label(RichText::new(arrows(&l.why)).font(body(12.0)).color(TEXT_SECONDARY));
+        ui.label(RichText::new(widgets::arrows(&l.why)).font(body(12.0)).color(TEXT_SECONDARY));
         if let Some(line) = &l.progress {
             ui.add_space(S1);
-            ui.label(RichText::new(arrows(line)).font(body(12.0)).color(TEXT_MUTED));
+            ui.label(RichText::new(widgets::arrows(line)).font(body(12.0)).color(TEXT_MUTED));
             if p.points.len() >= 2 {
                 let mut values = vec![f.value];
                 values.extend(&p.points);

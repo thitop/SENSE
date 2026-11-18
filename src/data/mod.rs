@@ -8,8 +8,9 @@ use std::fs;
 use std::path::PathBuf;
 
 pub use calibration::{CalibrationResult, CalibrationRound, EstimateRecord, PairRecord, RoundSignals, RunDiagnostics};
+pub use crate::sensitivity::blocks::{NextPick, RoundGuess, RoundTrace};
 pub use history::{SessionHistory, SessionRecord};
-pub use metrics::{AggregatedTaskMetrics, MetricPoint};
+pub use metrics::{AggregatedTaskMetrics, MetricPoint, TrackingStats};
 pub use profile::{PlayerProfile, ProfileManager};
 pub use settings::AppSettings;
 

@@ -47,6 +47,11 @@ fn kv_row(ui: &mut Ui, label: &str, value: &str) {
     });
 }
 
+/// The UI fonts have no right-arrow glyph; the icon font's arrow stands in for it.
+pub fn arrows(text: &str) -> String {
+    text.replace('\u{2192}', egui_phosphor::regular::ARROW_RIGHT)
+}
+
 /// A thin rule across the available width.
 pub fn divider(ui: &mut Ui) {
     ui.add_space(S2);

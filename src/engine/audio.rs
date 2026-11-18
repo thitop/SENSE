@@ -19,10 +19,12 @@ pub enum Sfx {
     SpawnCue,
     SensChange,
     Complete,
+    /// Soft tick repeated while the crosshair stays on a tracking target.
+    TrackTick,
 }
 
 impl Sfx {
-    pub const ALL: [Sfx; 7] = [
+    pub const ALL: [Sfx; 8] = [
         Sfx::Hit,
         Sfx::Miss,
         Sfx::CountdownTick,
@@ -30,6 +32,7 @@ impl Sfx {
         Sfx::SpawnCue,
         Sfx::SensChange,
         Sfx::Complete,
+        Sfx::TrackTick,
     ];
 
     fn index(self) -> usize {
@@ -38,7 +41,8 @@ impl Sfx {
 
     pub fn bytes(self) -> &'static [u8] {
         match self {
-            Sfx::Hit => include_bytes!("../../assets/sounds/hit.mp3"),
+            // The tracking tick is the start of the hit sound, cut short and played softly.
+            Sfx::Hit | Sfx::TrackTick => include_bytes!("../../assets/sounds/hit.mp3"),
             Sfx::Miss => include_bytes!("../../assets/sounds/miss.mp3"),
             Sfx::CountdownTick => include_bytes!("../../assets/sounds/countdown_tick.mp3"),
             Sfx::CountdownGo => include_bytes!("../../assets/sounds/countdown_go.mp3"),
@@ -52,6 +56,8 @@ impl Sfx {
     pub fn max_secs(self) -> f32 {
         match self {
             Sfx::Hit | Sfx::Miss => 0.25,
+            // Shorter than the tick interval, so ticks never overlap.
+            Sfx::TrackTick => 0.06,
             Sfx::CountdownTick | Sfx::SpawnCue => 0.35,
             Sfx::CountdownGo | Sfx::SensChange => 0.8,
             Sfx::Complete => 1.5,
@@ -68,6 +74,7 @@ impl Sfx {
             Sfx::SpawnCue => 0.8,
             Sfx::SensChange => 0.5,
             Sfx::Complete => 0.8,
+            Sfx::TrackTick => 0.35,
         }
     }
 
@@ -81,6 +88,41 @@ impl Sfx {
             Sfx::SpawnCue => (1318.5, 70),
             Sfx::SensChange => (660.0, 90),
             Sfx::Complete => (587.33, 220),
+            Sfx::TrackTick => (1200.0, 30),
+        }
+    }
+}
+
+/// When to tick while tracking: once on getting onto the target, then every `INTERVAL_SECS`
+/// while the crosshair stays on it; silent off it.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TrackingTicker {
+    /// Time since the last tick; `None` while off the target.
+    since_tick: Option<f32>,
+}
+
+impl TrackingTicker {
+    pub const INTERVAL_SECS: f32 = 0.1;
+
+    /// Advance by `dt`; true when a tick should play this frame.
+    pub fn update(&mut self, dt: f32, on_target: bool) -> bool {
+        if !on_target {
+            self.since_tick = None;
+            return false;
+        }
+        match self.since_tick {
+            None => {
+                self.since_tick = Some(0.0);
+                true
+            }
+            Some(t) if t + dt >= Self::INTERVAL_SECS => {
+                self.since_tick = Some(t + dt - Self::INTERVAL_SECS);
+                true
+            }
+            Some(t) => {
+                self.since_tick = Some(t + dt);
+                false
+            }
         }
     }
 }

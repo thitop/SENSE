@@ -423,6 +423,7 @@ impl Renderer {
     pub fn render(
         &mut self,
         target_positions: &[(glam::Vec3, f32)],
+        on_target: bool,
         egui_primitives: &[egui::ClippedPrimitive],
         screen_descriptor: &egui_wgpu::ScreenDescriptor,
     ) -> Result<(), wgpu::SurfaceError> {
@@ -441,6 +442,8 @@ impl Renderer {
         let mut target_verts: Vec<Vertex> = Vec::new();
         let mut target_indices: Vec<u32> = Vec::new();
 
+        // A tracking target turns green while the crosshair is on it: that is when it scores.
+        let target_color = if on_target { [0.25, 0.95, 0.45, 1.0] } else { [1.0, 0.85, 0.05, 1.0] };
         for &(pos, radius) in target_positions {
             let base_idx = target_verts.len() as u32;
             for v in &self.sphere_mesh.vertices {
@@ -448,7 +451,7 @@ impl Renderer {
                 target_verts.push(Vertex {
                     position: world_pos.to_array(),
                     normal: v.normal,
-                    color: [1.0, 0.85, 0.05, 1.0],
+                    color: target_color,
                 });
             }
             for idx in &self.sphere_mesh.indices {

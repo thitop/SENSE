@@ -35,7 +35,8 @@ pub fn centered<R>(ui: &mut Ui, max_width: f32, add: impl FnOnce(&mut Ui) -> R) 
 }
 
 /// Muted section heading inside a screen.
-pub fn section(ui: &mut Ui, title: &str) {
-    ui.label(RichText::new(title).font(medium(16.0)).color(TEXT));
+pub fn section(ui: &mut Ui, title: &str) -> egui::Response {
+    let heading = ui.label(RichText::new(title).font(medium(16.0)).color(TEXT));
     ui.add_space(S1);
+    heading
 }
