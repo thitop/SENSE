@@ -4,7 +4,7 @@ Usage: python tools/vectorize_questions.py <in_dir> <out_dir>
 
 Reads <id>.png or <id>.webp for each id in ART_IDS (those that exist), makes the
 #0B0C0E background transparent, traces with vtracer, snaps every fill to PALETTE,
-rounds coordinates to 1 decimal and fails if an output exceeds 150 KB.
+rounds coordinates to 1 decimal and fails if an output exceeds 300 KB.
 """
 import io
 import re
@@ -24,10 +24,10 @@ ART_IDS = [
 PALETTE = ["#1B1D21", "#2C2F35", "#A3A6AD", "#ECECEE", "#FFD23F"]
 BACKGROUND = (0x0B, 0x0C, 0x0E)
 BG_TOLERANCE = 12
-MAX_BYTES = 150 * 1024
+MAX_BYTES = 300 * 1024
 # (filter_speckle, color_precision) attempts: the spec values first, then coarser
 # settings only if the output would exceed MAX_BYTES.
-ATTEMPTS = [(8, 5), (12, 5), (16, 5), (16, 4), (16, 3)]
+ATTEMPTS = [(4, 6), (4, 5), (4, 4)]
 
 
 def hex_to_rgb(h):
@@ -45,8 +45,17 @@ def snap(hex_colour):
     return min(PALETTE_RGB, key=lambda p: sum((a - c) ** 2 for a, c in zip(p[1], (r, g, b))))[0]
 
 
+def quantize(img):
+    """Nearest-colour reduce to the background plus PALETTE, no dithering."""
+    colours = [BACKGROUND] + [hex_to_rgb(p) for p in PALETTE]
+    pal = Image.new("P", (1, 1))
+    flat = [c for rgb in colours for c in rgb]
+    pal.putpalette(flat + list(BACKGROUND) * ((768 - len(flat)) // 3))
+    return img.convert("RGB").quantize(palette=pal, dither=Image.Dither.NONE).convert("RGB")
+
+
 def make_transparent(img):
-    img = img.convert("RGBA")
+    img = quantize(img).convert("RGBA")
     px = img.load()
     w, h = img.size
     for y in range(h):

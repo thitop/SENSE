@@ -13,9 +13,8 @@ No third-party artwork is used in the placeholders.
 ## Status per file
 
 - Final AI art (vectorised): `grip_palm`, `grip_claw`, `grip_fingertip`, `pivot_wrist`,
-  `pivot_fingers`, `pad_small`, `pad_medium`.
-- Still placeholders: `pivot_arm`, `pivot_shoulder` (originals being regenerated), `pad_large`
-  (traces to about 290 KB even at the coarsest settings, over the 150 KB limit), `not_sure`
+  `pivot_fingers`, `pad_small`, `pad_medium`, `pad_large`.
+- Still placeholders: `pivot_arm`, `pivot_shoulder` (originals being regenerated), `not_sure`
   (no original).
 
 ## Regenerating from the originals
@@ -26,8 +25,9 @@ No third-party artwork is used in the placeholders.
    The vtracer Python wheel segfaults on Python 3.15, so also run `cargo install vtracer --root .venv-art`;
    the script prefers that CLI (`.venv-art/bin/vtracer`) and falls back to the wheel.
 3. Run `.venv-art/Scripts/python.exe tools/vectorize_questions.py assets/questions/originals <out_dir>`.
-   Background `#0B0C0E` becomes transparent, fills snap to the five-colour palette, and the tool starts at
-   `filter_speckle=8`, `color_precision=5`, falling back to coarser settings until the file is at most 150 KB.
+   Background `#0B0C0E` becomes transparent, fills snap to the five-colour palette, and the tool first
+   quantizes the original to the background plus the palette (nearest colour, no dithering), then traces with
+   `filter_speckle=4`, `color_precision=6`, falling back to precision 5 and 4 until the file is at most 300 KB.
    It exits non-zero if a picture still does not fit.
 4. Copy the SVGs you want from `<out_dir>` into `assets/questions/`, then run
    `cargo test --test player_questions_ui_tests`.

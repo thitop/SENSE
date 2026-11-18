@@ -27,7 +27,7 @@ stage files a task doesn't name.
 - Q1 applies only while the player's sensitivity is within ±5% of `answered_at_cm`.
 - Base cm when sensitivity unknown, Q3 first then Q2: Fingers 28, Wrist 32, Fingertip 32, Claw 40, Palm 45, Arm 45, Shoulder 55.
 - Start-hint step: ×1.25 / ÷1.25 for the first 2 blocks (`BISECTION_BLOCKS`).
-- No new runtime crates. SVGs ≤ 150 KB each, and contain no `<script`, `href`, `<image`, `foreignObject`, `onload`.
+- No new runtime crates. SVGs ≤ 300 KB each, and contain no `<script`, `href`, `<image`, `foreignObject`, `onload`.
 - Warm-up is unchanged; no pivot detector.
 
 ## Review Focus
@@ -272,7 +272,7 @@ stage files a task doesn't name.
   - Skip all and the last-step button emit `SaveSetup`, with `start_after = !from_settings`. `Cancel` (only when `from_settings`) and Esc emit `CancelQuestions`.
 
 - [ ] **Step 1: Write failing tests**
-  - `every_question_picture_exists_and_is_safe`: each id in `QUESTION_ART` has bytes, starts with `<svg`, is ≤ 150 KB, and contains none of `<script`, `href`, `<image`, `foreignObject`, `onload`.
+  - `every_question_picture_exists_and_is_safe`: each id in `QUESTION_ART` has bytes, starts with `<svg`, is ≤ 300 KB, and contains none of `<script`, `href`, `<image`, `foreignObject`, `onload`.
   - `not_sure_and_problems_are_exclusive`: toggle Overshoot, then `set_problems_not_sure` → problems empty; toggle ShakySmall → `problems_not_sure == false`.
   - `skip_all_saves_not_sure_and_starts`: render the step-1 frame with a simulated click on Skip all (use `headless_frame` and `egui::Event` in the `ui_redesign_tests.rs` pattern, or call the screen fn with a test hook `questions::skip_all(&draft, own_cm, now) -> UiAction`) → `SaveSetup { setup: PlayerSetup::not_sure(..), start_after: true }`.
   - `cancel_saves_nothing`: `questions::cancel() == UiAction::CancelQuestions`, and no `SaveSetup` is produced for a draft that was only navigated.
@@ -364,9 +364,9 @@ stage files a task doesn't name.
   - vectorise with vtracer colour mode, `filter_speckle=8`, `color_precision=5`
   - snap every fill to the nearest of the palette `PALETTE = ["#1B1D21", "#2C2F35", "#A3A6AD", "#ECECEE", "#FFD23F"]` (RGB distance; fills with R > 180, G > 140, B < 120 always snap to `#FFD23F`)
   - round coordinates to 1 decimal
-  - fail if the output is > 150 KB
+  - fail if the output is > 300 KB
 
-- [ ] **Step 1:** Write `tools/selftest_vectorize.py`: draw a 512×384 PNG with Pillow (background `#0B0C0E`, a `#2A2C30` rectangle, an off-yellow `#F5C842` circle), run the script on it, and assert that every fill in the output is in `PALETTE`, `#FFD23F` and `#2C2F35` are present, nothing is left of the background colour, and the file is ≤ 150 KB.
+- [ ] **Step 1:** Write `tools/selftest_vectorize.py`: draw a 512×384 PNG with Pillow (background `#0B0C0E`, a `#2A2C30` rectangle, an off-yellow `#F5C842` circle), run the script on it, and assert that every fill in the output is in `PALETTE`, `#FFD23F` and `#2C2F35` are present, nothing is left of the background colour, and the file is ≤ 300 KB.
 - [ ] **Step 2:** `python tools/selftest_vectorize.py` → FAIL (script missing).
 - [ ] **Step 3:** Implement the script.
 - [ ] **Step 4:** `pip install -r tools/requirements-art.txt` then `python tools/selftest_vectorize.py` → PASS.

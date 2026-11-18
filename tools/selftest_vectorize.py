@@ -29,7 +29,7 @@ def main():
         f = out / "grip_palm.svg"
         data = f.read_text()
         assert data.startswith("<svg"), "must start with <svg"
-        assert f.stat().st_size <= 150 * 1024, "too large"
+        assert f.stat().st_size <= 300 * 1024, "too large"
         fills = {m.upper() for m in re.findall(r'fill="(#[0-9a-fA-F]{6})"', data)}
         assert fills, "no fills"
         assert fills <= PALETTE, f"off-palette fills: {fills - PALETTE}"

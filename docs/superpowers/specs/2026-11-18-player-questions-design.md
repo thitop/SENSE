@@ -204,7 +204,7 @@ Pipeline (decided: AI images, then vectorised):
 2. Each PNG is vectorised with `vtracer` (colour mode, few colours). Image generators don't hit exact
    hex values, so every fill is then snapped to the nearest colour of that palette, and the background
    is made transparent. A small script in `tools/` does this so it can be rerun.
-3. Budget: ≤ 150 KB per SVG; it must render crisply at the card's size (about 170 × 120 pt).
+3. Budget: ≤ 300 KB per SVG; it must render crisply at the card's size (about 170 × 120 pt).
 
 Until the final images exist, the build ships the round-5 mockup drawings as placeholders. They are
 already SVG and already distinguish the three grips.

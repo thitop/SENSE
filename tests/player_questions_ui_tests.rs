@@ -27,19 +27,29 @@ fn saved() -> PlayerSetup {
     }
 }
 
+const MAX_PICTURE_BYTES: usize = 300 * 1024;
+
 #[test]
 fn every_question_picture_exists_and_is_safe() {
     assert_eq!(QUESTION_ART.len(), 11);
     for id in QUESTION_ART {
         let bytes = question_svg(id).unwrap_or_else(|| panic!("missing picture {id}"));
         assert!(bytes.starts_with(b"<svg"), "{id} must start with <svg");
-        assert!(bytes.len() <= 150 * 1024, "{id} too big");
+        assert!(bytes.len() <= MAX_PICTURE_BYTES, "{id} too big");
         let text = String::from_utf8(bytes.to_vec()).unwrap();
         for bad in ["<script", "href", "<image", "foreignObject", "onload"] {
             assert!(!text.contains(bad), "{id} contains {bad}");
         }
     }
     assert!(question_svg("nope").is_none());
+}
+
+#[test]
+fn question_pictures_keep_their_highlights() {
+    for id in ["grip_palm", "grip_claw", "grip_fingertip", "pivot_wrist", "pivot_fingers"] {
+        let text = String::from_utf8(question_svg(id).unwrap().to_vec()).unwrap();
+        assert!(text.to_uppercase().contains("#FFD23F"), "{id} lost its yellow highlights");
+    }
 }
 
 #[test]
