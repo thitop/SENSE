@@ -122,7 +122,7 @@ address bar):
 
 | Folder or file | Contents |
 |---|---|
-| `profiles\` | Each profile: DPI, main game, sensitivity, latest result |
+| `profiles\` | Each profile: DPI, main game, sensitivity, latest result, crosshair |
 | `history\` | Every session you played, per profile |
 | `calibrations\` | Every calibration run, with what each test said per round |
 | `settings.json` | Sound settings (effects on or off, effects volume, music volume), window or fullscreen, and where the window was |

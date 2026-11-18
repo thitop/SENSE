@@ -251,6 +251,34 @@ pub fn segmented(ui: &mut Ui, id: &str, choices: &[(&str, &str)], selected: usiz
     clicked
 }
 
+/// A round colour choice; `selected` rings it in the text colour. `color: None` draws a "+"
+/// (a custom colour).
+pub fn swatch(ui: &mut Ui, color: Option<egui::Color32>, selected: bool, label: &str) -> Response {
+    const D: f32 = 24.0;
+    let (rect, resp) = ui.allocate_exact_size(vec2(D + 6.0, D + 6.0), Sense::click());
+    resp.widget_info(|| WidgetInfo::selected(WidgetType::RadioButton, ui.is_enabled(), selected, label));
+    if ui.is_rect_visible(rect) {
+        let t = ui.ctx().animate_bool_with_time(resp.id, resp.hovered(), 0.12);
+        let c = rect.center();
+        let p = ui.painter();
+        match color {
+            Some(col) => {
+                p.circle_filled(c, D / 2.0, col);
+            }
+            None => {
+                p.circle_stroke(c, D / 2.0 - 0.5, Stroke::new(1.0_f32, BORDER_STRONG.lerp_to_gamma(TEXT_FAINT, t)));
+                p.text(c, Align2::CENTER_CENTER, egui_phosphor::regular::PLUS, body(13.0), TEXT_SECONDARY);
+            }
+        }
+        if selected {
+            p.circle_stroke(c, D / 2.0 + 2.5, Stroke::new(1.5_f32, TEXT));
+        } else if t > 0.0 {
+            p.circle_stroke(c, D / 2.0 + 2.5, Stroke::new(1.0_f32, TEXT_FAINT.gamma_multiply(t)));
+        }
+    }
+    resp.on_hover_text(label).on_hover_cursor(CursorIcon::PointingHand)
+}
+
 /// Outlined red button for destructive confirmations.
 pub fn danger_button(ui: &mut Ui, label: &str) -> Response {
     let galley = ui.painter().layout_no_wrap(label.to_string(), medium(13.0), DANGER);

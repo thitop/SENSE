@@ -7,7 +7,7 @@ use std::fs;
 use std::path::Path;
 
 use aim_trainer::data::{
-    AggregatedTaskMetrics, CalibrationResult, CalibrationRound, DisplayMode, EstimateRecord, MetricPoint, NextPick,
+    AggregatedTaskMetrics, CalibrationResult, CalibrationRound, CrosshairStyle, DisplayMode, EstimateRecord, MetricPoint, NextPick,
     PlayerProfile, RoundGuess, RoundSignals, RoundTrace, RunDiagnostics, SessionHistory, SessionRecord,
     TrackingStats,
 };
@@ -343,7 +343,20 @@ fn scenes() -> Vec<Scene> {
     let mut fullscreen = base("settings-fullscreen", L, Screen::Settings, true);
     fullscreen.display_mode = DisplayMode::Fullscreen;
     v.push(fullscreen);
-    v.push(base("settings-small-full", (1024, 1100), Screen::Settings, true));
+    v.push(base("settings-small-full", (1024, 1500), Screen::Settings, true));
+    // A changed crosshair: thicker yellow lines, a centre dot and an outline.
+    let mut crosshair = base("settings-crosshair", (1280, 1500), Screen::Settings, true);
+    crosshair.profile.crosshair = CrosshairStyle {
+        color: [255, 230, 0],
+        opacity: 1.0,
+        length: 6,
+        thickness: 2,
+        gap: 4,
+        dot: true,
+        dot_size: 2,
+        outline: true,
+    };
+    v.push(crosshair);
 
     let mut detail = base("history-detail", L, Screen::History, true);
     detail.state.open_session = Some("s0".into());

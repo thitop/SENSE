@@ -15,7 +15,7 @@ pub mod widgets;
 use egui::{vec2, Align, Align2, CornerRadius, CursorIcon, Frame, Layout, Margin, RichText, Sense};
 use egui_phosphor::regular as icon;
 
-use crate::data::{DisplayMode, PlayerProfile, SessionHistory};
+use crate::data::{CrosshairStyle, DisplayMode, PlayerProfile, SessionHistory};
 use crate::game::calibration::{CalibrationProgress, PlaySession};
 use crate::game::tasks::{TaskMetrics, TaskState, TaskType};
 use crate::sensitivity::games::GameProfile;
@@ -47,6 +47,7 @@ pub enum UiAction {
     SetMainGame(String),
     SetAudio { enabled: bool, volume: f32, music_volume: f32 },
     SetDisplayMode(DisplayMode),
+    SetCrosshair(CrosshairStyle),
     CreateProfile(String),
     SelectProfile(String),
     DeleteProfile(String),
@@ -114,6 +115,8 @@ pub struct UiState {
     pub dpi_saved_at: Option<f64>,
     pub new_profile_name: String,
     pub pending_delete: Option<String>,
+    /// Crosshair changes while a slider or the colour picker is held; saved on release.
+    pub crosshair_draft: Option<CrosshairStyle>,
     // Sensitivity screen
     pub copied_at: Option<f64>,
     pub show_all_games: bool,
@@ -137,6 +140,7 @@ impl UiState {
             dpi_saved_at: None,
             new_profile_name: String::new(),
             pending_delete: None,
+            crosshair_draft: None,
             copied_at: None,
             show_all_games: false,
             replay: replay::ReplayState::default(),
